@@ -52,15 +52,15 @@
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ugaeo/UGAEO.git"
+    "url": "git+https://github.com/jayibidi/UGAEO.git"
   },
-  "homepage": "https://github.com/ugaeo/UGAEO#readme",
+  "homepage": "https://github.com/jayibidi/UGAEO#readme",
   "bugs": {
-    "url": "https://github.com/ugaeo/UGAEO/issues"
+    "url": "https://github.com/jayibidi/UGAEO/issues"
   },
   "author": {
-    "name": "ugaeo",
-    "url": "https://github.com/ugaeo"
+    "name": "jayibidi",
+    "url": "https://github.com/jayibidi"
   },
   "packageManager": "pnpm@12.16.1",
   "keywords": [

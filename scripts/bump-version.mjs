@@ -45,6 +45,8 @@ const TEXT_TARGETS = [
   { rel: 'packages/cli/src/index.ts', re: /(\.version\(')(\d+\.\d+\.\d+)('\))/, label: 'cli --version' },
   { rel: 'packages/mcp-server/src/index.ts', re: /(version: ')(\d+\.\d+\.\d+)(')/g, label: 'mcp index' },
   { rel: 'packages/mcp-server/src/server.ts', re: /(version: ')(\d+\.\d+\.\d+)(')/g, label: 'mcp server' },
+  // marketplace.json 的 version 在 plugins[0] 里，JSON 顶层没有，所以只能按文本改
+  { rel: '.claude-plugin/marketplace.json', re: /("version": ")(\d+\.\d+\.\d+)(")/, label: 'marketplace plugin' },
 ]
 
 function parseVersion(v) {

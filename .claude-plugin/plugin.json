@@ -3,11 +3,11 @@
   "version": "2.4.2",
   "description": "Sync articles to 34+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
   "author": {
-    "name": "ugaeo",
-    "url": "https://github.com/ugaeo"
+    "name": "jayibidi",
+    "url": "https://github.com/jayibidi"
   },
-  "homepage": "https://github.com/ugaeo/UGAEO",
-  "repository": "https://github.com/ugaeo/UGAEO",
+  "homepage": "https://github.com/jayibidi/UGAEO",
+  "repository": "https://github.com/jayibidi/UGAEO",
   "license": "GPL-3.0",
   "keywords": [
     "sync",

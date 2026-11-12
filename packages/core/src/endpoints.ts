@@ -26,6 +26,6 @@ export const REMOTE_CONFIG_URL = `${API_ORIGIN}/config.json`
 export const VERSION_CHECK_URL = `${API_ORIGIN}/version.json`
 
 /** 代码仓库与发布页 */
-export const REPO_URL = 'https://github.com/ugaeo/UGAEO'
+export const REPO_URL = 'https://github.com/jayibidi/UGAEO'
 export const RELEASES_URL = `${REPO_URL}/releases/latest`
 export const ISSUES_URL = `${REPO_URL}/issues`

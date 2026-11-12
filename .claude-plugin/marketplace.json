@@ -1,18 +1,18 @@
 {
   "name": "ugaeo",
   "owner": {
-    "name": "ugaeo",
-    "url": "https://github.com/ugaeo"
+    "name": "jayibidi",
+    "url": "https://github.com/jayibidi"
   },
   "plugins": [
     {
       "name": "sync",
       "source": "./",
-      "version": "1.0.0",
+      "version": "2.4.2",
       "description": "Sync articles to 34+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
       "author": {
-        "name": "ugaeo",
-        "url": "https://github.com/ugaeo"
+        "name": "jayibidi",
+        "url": "https://github.com/jayibidi"
       }
     }
   ]

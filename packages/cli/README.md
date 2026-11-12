@@ -15,7 +15,7 @@ npm install -g @ugaeo/cli
 ugaeo sync article.md --platforms zhihu,juejin
 ```
 
-首次使用会提示安装 Chrome 扩展 - 从 [Releases](https://github.com/ugaeo/UGAEO/releases/latest) 下载 zip 后加载到浏览器。
+首次使用会提示安装 Chrome 扩展 - 从 [Releases](https://github.com/jayibidi/UGAEO/releases/latest) 下载 zip 后加载到浏览器。
 
 ## 命令
 
@@ -146,7 +146,7 @@ MCP_TOKEN=your-token node packages/mcp-server/dist/index.js
 安装 Skill 插件：
 
 ```bash
-/plugin marketplace add ugaeo/UGAEO
+/plugin marketplace add jayibidi/UGAEO
 /plugin install ugaeo
 ```
 

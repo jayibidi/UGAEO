@@ -1,8 +1,8 @@
 # UG·AEO | 新媒体中心
 
-![](https://img.shields.io/github/v/release/ugaeo/UGAEO.svg)
-![](https://img.shields.io/github/last-commit/ugaeo/UGAEO)
-![](https://img.shields.io/github/issues/ugaeo/UGAEO)
+![](https://img.shields.io/github/v/release/jayibidi/UGAEO.svg)
+![](https://img.shields.io/github/last-commit/jayibidi/UGAEO)
+![](https://img.shields.io/github/issues/jayibidi/UGAEO)
 
 **开源免费**的跨平台文章同步工具 | Chrome 浏览器扩展 | 自媒体内容分发神器
 
@@ -109,7 +109,7 @@
 
 **方式一：下载 Release（推荐）**
 
-1. 打开 [最新 Release](https://github.com/ugaeo/UGAEO/releases/latest)，下载 `ugaeo-v2.4.2.zip`
+1. 打开 [最新 Release](https://github.com/jayibidi/UGAEO/releases/latest)，下载 `ugaeo-v2.4.2.zip`
 2. 解压到**固定目录**（别放下载临时文件夹，Chrome 会记住这个路径）
 3. 打开 `chrome://extensions` → 右上角开启「开发者模式」→「加载已解压的扩展程序」→ 选解压出的目录
 
@@ -209,7 +209,7 @@ ugaeo extract -o article.md
 安装后可在 Claude Code 中直接用自然语言操作：
 
 ```bash
-/plugin marketplace add ugaeo/UGAEO
+/plugin marketplace add jayibidi/UGAEO
 /plugin install sync@ugaeo
 ```
 
@@ -220,7 +220,7 @@ ugaeo extract -o article.md
 本仓库自带 `skills/` 与 `.claude-plugin/`，可以直接作为插件源注册：
 
 ```bash
-/plugin marketplace add ugaeo/UGAEO
+/plugin marketplace add jayibidi/UGAEO
 /plugin install sync@ugaeo
 ```
 
@@ -310,13 +310,13 @@ pnpm build
 
 ## 更新日志
 
-完整变更见 [CHANGELOG.md](CHANGELOG.md)，可下载的版本见 [Releases](https://github.com/ugaeo/UGAEO/releases)。
+完整变更见 [CHANGELOG.md](CHANGELOG.md)，可下载的版本见 [Releases](https://github.com/jayibidi/UGAEO/releases)。
 
 ## 参与贡献
 
 - [开发指南](CONTRIBUTING.md)：环境要求、常用命令、如何新增一个平台、提交规范
 - [适配器开发规范](docs/adapter-spec.md)
-- 想支持某个平台？用 [「请求支持新平台」](https://github.com/ugaeo/UGAEO/issues/new?template=platform_request.yml) 模板提 issue，写清入驻门槛比写平台名有用得多
+- 想支持某个平台？用 [「请求支持新平台」](https://github.com/jayibidi/UGAEO/issues/new?template=platform_request.yml) 模板提 issue，写清入驻门槛比写平台名有用得多
 
 ## 使用场景
 

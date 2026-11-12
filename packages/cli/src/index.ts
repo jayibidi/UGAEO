@@ -21,9 +21,9 @@ import type { PlatformInfo, SyncResult } from '@ugaeo/mcp-server/bridge'
 const WS_PORT = parseInt(process.env.SYNC_WS_PORT || '9527', 10)
 
 // 仓库与安装地址（扩展只从 GitHub Releases 分发，不指向任何商店页）
-const WEBSITE_URL = 'https://github.com/ugaeo/UGAEO'
-const EXTENSION_URL = 'https://github.com/ugaeo/UGAEO/releases/latest'
-const GITHUB_URL = 'https://github.com/ugaeo/UGAEO'
+const WEBSITE_URL = 'https://github.com/jayibidi/UGAEO'
+const EXTENSION_URL = 'https://github.com/jayibidi/UGAEO/releases/latest'
+const GITHUB_URL = 'https://github.com/jayibidi/UGAEO'
 
 const program = new Command()
 
