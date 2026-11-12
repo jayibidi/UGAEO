@@ -40,6 +40,15 @@
     用于发现「页面改版导致填充失效」；能识别「跳转到登录页」「404 空壳页」
   - 一键复制完整报告
 
+### 开源准备（2.4.2 同时作为首个公开版本）
+
+- 🔓 仓库可公开构建：`.gitignore` 不再排除被 `index.ts` 静态引用的 `xiaohongshu.ts`；移除指向私有 SSH 仓库的 `.gitmodules`
+- 🔗 对外地址收敛到 `packages/core/src/endpoints.ts`（AI 中转站 / 控制台 / 远程配置 / 版本检查 / 仓库地址），改域名只需改一处
+- 🔢 版本号统一：`scripts/bump-version.mjs` 覆盖 7 个 JSON 与 4 处源码字面量，`pnpm version:check` 可在 CI 校验漂移
+- 📦 CLI 的安装链接从上游站点改为 GitHub Releases，避免装成上游原版扩展
+- 📖 README 平台表按 `capabilities` 重新生成：删除 5 个没有实现的平台，补齐 11 个已实现平台
+- 🧾 新增 `NOTICE`（上游 Wechatsync / GPL-3.0 署名）、`SECURITY.md`、CI、issue 与 PR 模板；`CONTRIBUTING.md` 重写
+
 ## v2.4.1 (2026-11-12)
 
 - 🐛 修复打开弹窗时控制台报 `[SyncStore] Failed to extract article: Could not establish connection. Receiving end does not exist.`
