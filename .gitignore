@@ -1,0 +1,42 @@
+node_modules
+dist
+.turbo
+*.log
+.DS_Store
+*.local
+.env
+.env.*
+!.env.example
+coverage
+*.zip
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+
+# TypeScript compiled files
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+*.tsbuildinfo
+
+# Keep reader library files
+!packages/extension/src/lib/reader/reader.js
+!packages/extension/src/lib/reader/Readability.js
+
+# Lock files (use pnpm)
+package-lock.json
+yarn-error.log
+CLAUDE.md
+
+# 本地私有适配器（可选，不进公开仓库）
+# 只允许排除 private/ 子目录。platforms/ 下的具体文件一旦被 index.ts 静态 import
+# 就不能忽略，否则别人 clone 下来构建直接失败（见 docs/开源发布清单.md P0-2）
+packages/core/src/adapters/platforms/private/
+
+# 本地工作区数据与个人配置（不进公开仓库）
+.workbuddy/
+.claude/

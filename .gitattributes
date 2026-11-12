@@ -1,0 +1,21 @@
+# 换行符统一为 LF：否则 Linux / macOS 贡献者一打开仓库就看到「整个文件都改了」
+* text=auto eol=lf
+
+# 二进制文件不要做换行转换，也不要生成 diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+
+# Windows 脚本保留 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 锁文件在 GitHub 上折叠显示，避免 review 时刷屏
+pnpm-lock.yaml linguist-generated=true

@@ -1,0 +1,55 @@
+name: 请求支持新平台
+description: 希望新增某个内容平台的同步支持
+title: "[平台] "
+labels: ["platform-request"]
+body:
+  - type: input
+    id: platform
+    attributes:
+      label: 平台名称与创作者后台地址
+      placeholder: 示例号 — https://mp.example.com
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 这个平台能发什么
+      options:
+        - 图文长文
+        - 短图文 / 笔记
+        - 资讯 / 快讯
+        - 问答
+        - 不确定
+    validations:
+      required: true
+
+  - type: dropdown
+    id: access
+    attributes:
+      label: 入驻门槛
+      description: 这一项决定了能不能真的自动化，比平台名字重要得多
+      options:
+        - 注册即可发文（可自助）
+        - 需要人工审核 / 邀请码
+        - 只能通过投稿表单，没有创作者后台
+        - 不清楚
+    validations:
+      required: true
+
+  - type: textarea
+    id: api
+    attributes:
+      label: 你知道的接口或页面信息（可选）
+      description: 比如「发布走 POST /api/publish，带 x-s 签名」，能大幅缩短适配时间
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: 你能提供什么帮助
+      options:
+        - label: 我可以提供该平台的测试账号
+        - label: 我可以帮忙抓接口 / 验证发布结果
+        - label: 我只能提需求

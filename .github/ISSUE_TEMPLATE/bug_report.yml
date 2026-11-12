@@ -1,0 +1,88 @@
+name: 报告一个 Bug
+description: 同步失败、登录态误判、按钮没反应之类的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先自查三件事，能省掉一半来回：
+        1. 扩展详情页的版本号是不是最新 Release？
+        2. 控制台「自检」页里，这个平台是「正常」还是「有问题」？
+        3. `chrome://extensions` 打开「开发者模式」，错误面板里有没有红字？
+
+  - type: input
+    id: version
+    attributes:
+      label: 扩展版本
+      description: chrome://extensions 里本扩展显示的版本号
+      placeholder: 2.4.2
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器
+      placeholder: Chrome 137 / Edge 137 / 360 极速版
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 出问题的平台
+      description: 选最接近的一个；多平台问题在下面正文里列全
+      options:
+        - 知乎
+        - 掘金
+        - CSDN
+        - 头条号
+        - 微信公众号
+        - 小红书
+        - 百家号
+        - 微博
+        - B站专栏
+        - 简书
+        - 语雀
+        - 其他（正文说明）
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开某篇公众号文章
+        2. 点扩展图标，勾选知乎，点同步
+        3. 结果提示「未检测到登录态」，但网页上是登录的
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果 vs 实际结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 错误信息 / 截图
+      description: |
+        有控制台报错请贴文本。**贴之前把 Cookie、token、手机号、真实姓名删掉。**
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已经搜过现有 issue，没有重复
+          required: true
+        - label: 我贴出的日志里不含任何账号凭据
+          required: true

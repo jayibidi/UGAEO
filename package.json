@@ -1,0 +1,76 @@
+{
+  "name": "ugaeo",
+  "version": "2.4.2",
+  "private": true,
+  "description": "开源免费的跨平台文章同步 Chrome 扩展：微信公众号一键分发到知乎、掘金、CSDN、头条号等 34 个平台",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter @ugaeo/extension dev",
+    "build": "pnpm build:extension",
+    "build:core": "pnpm --filter @ugaeo/core build",
+    "build:extension": "pnpm --filter @ugaeo/extension build",
+    "build:mcp": "pnpm --filter @ugaeo/mcp-server build",
+    "build:cli": "pnpm --filter @ugaeo/cli build",
+    "bundle": "pnpm build:extension && node scripts/pack-extension.mjs",
+    "mcp": "pnpm --filter @ugaeo/mcp-server start",
+    "test": "pnpm --filter @ugaeo/core test && pnpm --filter @ugaeo/extension test",
+    "lint": "eslint packages --ext .ts,.tsx",
+    "typecheck": "pnpm --filter @ugaeo/core typecheck && pnpm --filter @ugaeo/extension typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "version:bump": "node scripts/bump-version.mjs",
+    "version:check": "node scripts/bump-version.mjs --check"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "rehype-parse": "^9.0.1",
+    "rehype-remark": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-stringify": "^11.0.0",
+    "turndown": "^7.2.2",
+    "turndown-plugin-gfm": "^1.0.2",
+    "typescript": "^5.3.0",
+    "unified": "^11.0.5",
+    "vite": "^5.4.21"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modyfi/vite-plugin-yaml": "^1.1.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ugaeo/UGAEO.git"
+  },
+  "homepage": "https://github.com/ugaeo/UGAEO#readme",
+  "bugs": {
+    "url": "https://github.com/ugaeo/UGAEO/issues"
+  },
+  "author": {
+    "name": "ugaeo",
+    "url": "https://github.com/ugaeo"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "keywords": [
+    "chrome-extension",
+    "article-sync",
+    "wechat",
+    "zhihu",
+    "juejin",
+    "csdn",
+    "content-distribution",
+    "mcp"
+  ]
+}

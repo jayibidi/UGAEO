@@ -1,0 +1,9 @@
+packages:
+  - packages/*
+
+ignoredBuiltDependencies:
+  - esbuild
+
+# pnpm 12 默认把「被忽略的构建脚本」视为安装错误；
+# esbuild 的二进制由 vite 提供，跳过其构建脚本不影响使用
+strictDepBuilds: false

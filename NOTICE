@@ -1,0 +1,23 @@
+# 上游署名
+
+本项目 **UG·AEO | 新媒体中心**（仓库 `ugaeo/UGAEO`）是以下项目的衍生作品：
+
+- **Wechatsync / 文章同步助手** — https://github.com/wechatsync/Wechatsync
+  Copyright (C) Wechatsync contributors，以 GNU General Public License v3.0 发布
+
+根据 GPL-3.0 第 5 条，本项目的分发同样遵循 GPL-3.0，完整许可证文本见根目录 `LICENSE`。
+
+## 本仓库相对上游的主要改动
+
+- 包名 `@wechatsync/*` → `@ugaeo/*`，产品更名为 UG·AEO | 新媒体中心
+- 新增「页面驱动发布」（`PagePublishAdapter`）：为带反爬签名的平台在真实页面上下文中填充与发布
+- 新增平台档案与两层分组（可直发 / 仅草稿），适配器清单收敛到 `BUILT_IN_ADAPTERS` 单一真源
+- 新增控制台「自检」页与适配器一致性体检
+- 新增 MCP / Claude Skill 接入
+
+## 第三方组件
+
+本项目包含或依赖的第三方代码，版权归各自作者所有，遵循其原始许可证：
+
+- Readability.js（`packages/extension/src/lib/reader/`）— Apache License 2.0
+- 其余 npm 依赖见 `pnpm-lock.yaml` 中各包的 `license` 字段

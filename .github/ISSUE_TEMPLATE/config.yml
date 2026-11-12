@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安装与使用说明
+    url: https://github.com/ugaeo/UGAEO/blob/main/docs/安装与使用.md
+    about: 装不上、第一条消息怎么跑通，先看这个
+  - name: 平台支持情况与分类
+    url: https://github.com/ugaeo/UGAEO/blob/main/docs/平台分类.md
+    about: 哪些平台能直发、哪些只能存草稿、哪些无需登录
+  - name: 自检页怎么用
+    url: https://github.com/ugaeo/UGAEO/blob/main/docs/平台自检.md
+    about: 同步失败时先跑一遍自检，报告能直接贴到 issue 里

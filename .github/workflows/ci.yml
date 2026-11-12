@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # 版本从 package.json 的 packageManager 字段读取，避免两处不一致
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 版本号漂移是本项目最容易犯的错（7 个文件写着版本号），先查这个
+      - name: 版本号一致性
+        run: pnpm version:check
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 单元测试
+        run: pnpm test
+
+      # 构建必须单独跑：测试跑的是 ts 源码，构建才会暴露 manifest / 资源 / 别名问题
+      - name: 构建扩展
+        run: pnpm build
