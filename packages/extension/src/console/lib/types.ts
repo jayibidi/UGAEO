@@ -39,6 +39,8 @@ export interface SyncResult {
   platform: string
   platformName?: string
   success: boolean
+  /** 平台侧的文章 / 草稿 id，草稿转发布时要用 */
+  postId?: string
   postUrl?: string
   draftOnly?: boolean
   error?: string
@@ -46,6 +48,15 @@ export interface SyncResult {
   reviewStatus?: 'published' | 'reviewing' | 'rejected' | 'unknown'
   reviewStatusText?: string
   reviewChecked?: boolean
+}
+
+/** 一篇已经存在于平台草稿箱里的草稿 */
+export interface DraftRef {
+  platform: string
+  platformName?: string
+  postId?: string
+  postUrl?: string
+  title?: string
 }
 
 export type SyncStatus = 'syncing' | 'completed' | 'failed' | 'cancelled'

@@ -3,7 +3,7 @@
  */
 import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
 import type { Article, AuthResult, SyncResult, PlatformMeta, ReviewStatus } from '../../types'
-import type { PublishOptions } from '../types'
+import type { PublishOptions, DraftRef } from '../types'
 import { signAWS4, crc32 } from '../../lib'
 import { createLogger } from '../../lib/logger'
 
@@ -99,7 +99,7 @@ export class JuejinAdapter extends CodeAdapter {
     name: '掘金',
     icon: 'https://lf-web-assets.juejin.cn/obj/juejin-web/xitu_juejin_web/static/favicons/favicon-32x32.png',
     homepage: 'https://juejin.cn',
-    capabilities: ['article', 'draft', 'publish', 'image_upload', 'categories', 'tags', 'cover'],
+    capabilities: ['article', 'draft', 'publish', 'publish_existing_draft', 'image_upload', 'categories', 'tags', 'cover'],
   }
 
   /** 预处理配置: 掘金使用 Markdown 格式 */
@@ -310,6 +310,44 @@ export class JuejinAdapter extends CodeAdapter {
     }).catch((error) => this.createResult(false, {
       error: (error as Error).message,
     }))
+  }
+
+  /**
+   * 发布一篇已经存在的掘金草稿
+   *
+   * 与知乎同理：直接对之前保存的 draft_id 调发布接口，避免重复建草稿。
+   */
+  async publishExistingDraft(ref: DraftRef): Promise<SyncResult> {
+    if (!ref.postId) {
+      return this.createResult(false, {
+        error: '缺少草稿 ID，无法发布（请在平台后台手动发布）',
+        postUrl: ref.postUrl,
+      })
+    }
+
+    return this.withHeaderRules(this.HEADER_RULES, async () => {
+      try {
+        const csrfToken = await this.getCsrfToken()
+        const { url, articleId } = await this.publishDraft(ref.postId!, csrfToken)
+        const review = await this.resolveReviewStatus(articleId, url)
+
+        return this.createResult(true, {
+          postId: articleId,
+          postUrl: review.url || url,
+          draftOnly: false,
+          reviewStatus: review.status,
+          reviewStatusText: review.detail || this.reviewStatusText(review.status),
+          reviewChecked: true,
+          message: review.detail || this.reviewMessage(review.status),
+        })
+      } catch (error) {
+        return this.createResult(false, {
+          error: `草稿转发布失败：${(error as Error).message}`,
+          postId: ref.postId,
+          postUrl: ref.postUrl,
+        })
+      }
+    })
   }
 
   /**

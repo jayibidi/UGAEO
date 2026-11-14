@@ -3,7 +3,7 @@
  */
 import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
 import type { Article, AuthResult, SyncResult, PlatformMeta, ReviewStatus } from '../../types'
-import type { PublishOptions } from '../types'
+import type { DraftRef, PublishOptions } from '../types'
 import { createLogger } from '../../lib/logger'
 import md5Lib from 'js-md5'
 
@@ -18,7 +18,7 @@ export class ZhihuAdapter extends CodeAdapter {
     name: '知乎',
     icon: 'https://static.zhihu.com/static/favicon.ico',
     homepage: 'https://www.zhihu.com',
-    capabilities: ['article', 'draft', 'publish', 'image_upload', 'tags', 'cover'],
+    capabilities: ['article', 'draft', 'publish', 'publish_existing_draft', 'image_upload', 'tags', 'cover'],
   }
 
   /** 预处理配置: 知乎使用 HTML，需要特殊处理 */
@@ -214,6 +214,42 @@ export class ZhihuAdapter extends CodeAdapter {
     }).catch((error) => this.createResult(false, {
       error: (error as Error).message,
     }))
+  }
+
+  /**
+   * 发布一篇已经存在的知乎草稿
+   *
+   * 场景：用户先在「存为草稿」里同步过一遍，确认内容没问题后再回来发布。
+   * 这里直接对之前那篇草稿调发布接口，不会新建第二篇。
+   */
+  async publishExistingDraft(ref: DraftRef): Promise<SyncResult> {
+    if (!ref.postId) {
+      return this.createResult(false, {
+        error: '缺少草稿 ID，无法发布（请在平台后台手动发布）',
+        postUrl: ref.postUrl,
+      })
+    }
+
+    try {
+      const publishUrl = await this.publishDraft(ref.postId)
+      const review = await this.resolveReviewStatus(ref.postId, publishUrl)
+
+      return this.createResult(true, {
+        postId: ref.postId,
+        postUrl: review.url || publishUrl,
+        draftOnly: false,
+        reviewStatus: review.status,
+        reviewStatusText: review.detail || this.reviewStatusText(review.status),
+        reviewChecked: true,
+        message: review.detail || this.reviewMessage(review.status),
+      })
+    } catch (error) {
+      return this.createResult(false, {
+        error: `草稿转发布失败：${(error as Error).message}`,
+        postId: ref.postId,
+        postUrl: ref.postUrl,
+      })
+    }
   }
 
   /**

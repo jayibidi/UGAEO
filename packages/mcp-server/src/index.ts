@@ -35,7 +35,7 @@ function createServer(): Server {
   const server = new Server(
     {
       name: 'sync-assistant',
-      version: '2.4.2',
+      version: '2.5.0',
     },
     {
       capabilities: {
@@ -310,7 +310,7 @@ async function startSSEMode() {
   app.get('/', (_req: Request, res: Response) => {
     res.json({
       name: 'Sync Assistant MCP Server',
-      version: '2.4.2',
+      version: '2.5.0',
       extensionConnected: bridge.isConnected(),
     })
   })

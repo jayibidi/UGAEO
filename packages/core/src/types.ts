@@ -73,6 +73,7 @@ export type PlatformCapability =
   | 'article'      // 发布文章
   | 'draft'        // 草稿支持
   | 'publish'      // 支持真正公开发布（非草稿）
+  | 'publish_existing_draft' // 能把「已存在的草稿」直接发布（草稿转发布）
   | 'image_upload' // 图片上传
   | 'categories'   // 分类
   | 'tags'         // 标签

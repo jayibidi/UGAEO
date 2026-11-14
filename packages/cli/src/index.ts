@@ -33,7 +33,7 @@ let connectionTimeout = 30000
 program
   .name('ugaeo')
   .description('同步文章到多个内容平台 (知乎、掘金、CSDN 等)')
-  .version('2.4.2')
+  .version('2.5.0')
   .option('--timeout <ms>', '等待 Extension 连接超时（毫秒）', '30000')
   .hook('preAction', (thisCommand) => {
     const opts = thisCommand.opts()

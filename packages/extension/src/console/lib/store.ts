@@ -1,10 +1,19 @@
 import { create } from 'zustand'
-import { getPublishSettings, resolveDraftOnlyMap } from '../../lib/publish-settings'
+import { getPublishSettings } from '../../lib/publish-settings'
 import { extractArticleFromTab, describeExtractFailure } from '../../lib/tab-extractor'
+import {
+  buildDraftRefs,
+  buildDraftOnlyMap,
+  defaultScheduleValue,
+  draftPublishMode,
+  isScheduleValid,
+  parseDateTimeLocal,
+} from './publish-flow'
 import type {
   Article,
   ArticleSnapshot,
   CmsAccount,
+  DraftRef,
   FailureItem,
   HistoryItem,
   Notice,
@@ -14,8 +23,21 @@ import type {
 } from './types'
 
 const SELECTED_PLATFORMS_KEY = 'selectedPlatforms'
+/** 带入发布页的草稿，刷新控制台后不丢 */
+const PENDING_DRAFTS_KEY = 'pendingDraftRefs'
 const HANDOFF_KEY = 'consoleHandoff'
 const HANDOFF_TTL = 30 * 60 * 1000
+
+export type PublishTiming = 'now' | 'schedule'
+
+/** 定时队列里的一条任务（只保留界面要展示的字段） */
+export interface ScheduledJobInfo {
+  id: string
+  title: string
+  publishAt: number
+  platforms: string[]
+  kind?: 'sync' | 'publish-drafts'
+}
 
 interface SyncState {
   running: boolean
@@ -40,6 +62,18 @@ interface ConsoleState {
   article: Article | null
   selectedPlatforms: string[]
   publishMode: 'draft' | 'publish'
+  /** 发布时间：立即 / 定时（只在 publish 模式生效） */
+  publishTiming: PublishTiming
+  /** 定时时间，datetime-local 字符串 */
+  scheduledAt: string
+  /** 上一次草稿同步带过来的草稿，发布页直接用 */
+  draftRefs: DraftRef[]
+  /** 勾选要发布的草稿（按平台 id） */
+  selectedDraftRefs: string[]
+  /** 已排队的定时任务 */
+  scheduledJobs: ScheduledJobInfo[]
+  /** 最近一次执行的是哪类动作，决定结果列表显示在哪个页签 */
+  lastRunKind: 'draft' | 'publish' | 'publish-drafts' | null
   sync: SyncState
   notice: Notice | null
 
@@ -57,12 +91,20 @@ interface ConsoleState {
   selectAll: () => void
   deselectAll: () => void
   setPublishMode: (mode: 'draft' | 'publish') => void
+  setPublishTiming: (timing: PublishTiming) => void
+  setScheduledAt: (value: string) => void
+  toggleDraftRef: (platformId: string) => void
+  /** 把本次草稿同步的结果带入发布页 */
+  carryDrafts: (platformIds?: string[]) => void
+  clearDraftRefs: () => void
+  publishSelectedDrafts: () => Promise<void>
+  refreshScheduledJobs: () => Promise<void>
 
   startSync: () => Promise<void>
   runSync: (
     article: Article,
     platformIds: string[],
-    options?: { syncId?: string; mode?: 'draft' | 'publish' }
+    options?: { syncId?: string; mode?: 'draft' | 'publish'; timing?: PublishTiming; publishAt?: number }
   ) => Promise<SyncResult[]>
 
   refreshHistory: () => Promise<void>
@@ -84,6 +126,30 @@ function newSyncId() {
   return `sync_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
 }
 
+/** 提交一个定时任务给后台（同步文章 / 发布草稿都走这里） */
+async function requestScheduledJob(payload: Record<string, unknown>): Promise<{
+  ok: boolean
+  error?: string
+  data?: ScheduledJobInfo
+}> {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'SCHEDULE_CREATE', payload })
+    if (!response) return { ok: false, error: '后台没有响应' }
+    return { ok: !!response.ok, error: response.error, data: response.data as ScheduledJobInfo }
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
+  }
+}
+
+function formatMoment(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export const useConsoleStore = create<ConsoleState>((set, get) => ({
   booted: false,
   loadingPlatforms: false,
@@ -99,6 +165,12 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
   article: null,
   selectedPlatforms: [],
   publishMode: 'draft',
+  publishTiming: 'now',
+  scheduledAt: '',
+  draftRefs: [],
+  selectedDraftRefs: [],
+  scheduledJobs: [],
+  lastRunKind: null,
   sync: { running: false, syncId: null, results: [], stages: {}, error: null },
   notice: null,
 
@@ -142,10 +214,18 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
     // 3. 发布设置 + 选中的平台
     try {
       const settings = await getPublishSettings()
-      set({ publishMode: settings.mode === 'draft' ? 'draft' : 'publish' })
-      const saved = await chrome.storage.local.get(SELECTED_PLATFORMS_KEY)
+      set({
+        publishMode: settings.mode === 'draft' ? 'draft' : 'publish',
+        scheduledAt: get().scheduledAt || defaultScheduleValue(),
+      })
+      const saved = await chrome.storage.local.get([SELECTED_PLATFORMS_KEY, PENDING_DRAFTS_KEY])
       if (Array.isArray(saved[SELECTED_PLATFORMS_KEY]) && !get().selectedPlatforms.length) {
         set({ selectedPlatforms: saved[SELECTED_PLATFORMS_KEY] as string[] })
+      }
+
+      const pending = saved[PENDING_DRAFTS_KEY] as DraftRef[] | undefined
+      if (Array.isArray(pending) && pending.length) {
+        set({ draftRefs: pending, selectedDraftRefs: pending.map(ref => ref.platform) })
       }
     } catch {
       // ignore
@@ -155,6 +235,7 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
 
     // 4. 实时刷新登录态（内部会更新 lastCheckedAt）
     get().refreshPlatforms(false).catch(() => {})
+    get().refreshScheduledJobs().catch(() => {})
   },
 
   refreshPlatforms: async (force = false) => {
@@ -292,10 +373,90 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
     saveSelectedPlatforms([])
   },
 
-  setPublishMode: (mode) => set({ publishMode: mode }),
+  setPublishMode: (mode) =>
+    set(state => ({
+      publishMode: mode,
+      // 切到发布页时如果没有定时时间，给一个默认值，省得用户每次都要点
+      scheduledAt: mode === 'publish' && !state.scheduledAt ? defaultScheduleValue() : state.scheduledAt,
+    })),
+
+  setPublishTiming: (timing) =>
+    set(state => ({
+      publishTiming: timing,
+      scheduledAt: timing === 'schedule' && !state.scheduledAt ? defaultScheduleValue() : state.scheduledAt,
+    })),
+
+  setScheduledAt: (value) => set({ scheduledAt: value }),
+
+  toggleDraftRef: (platformId) =>
+    set(state => ({
+      selectedDraftRefs: state.selectedDraftRefs.includes(platformId)
+        ? state.selectedDraftRefs.filter(id => id !== platformId)
+        : [...state.selectedDraftRefs, platformId],
+    })),
+
+  carryDrafts: (platformIds) => {
+    const { sync, platforms } = get()
+    const picked = platformIds && platformIds.length ? new Set(platformIds) : null
+    const refs = buildDraftRefs(sync.results, platforms).filter(ref => !picked || picked.has(ref.platform))
+    if (!refs.length) {
+      set({ notice: { kind: 'info', text: '本次没有成功保存的草稿，先同步一遍再试' } })
+      return
+    }
+
+    const auto = refs
+      .filter(ref => draftPublishMode(ref, platforms) === 'auto')
+      .map(ref => ref.platform)
+
+    set(state => ({
+      draftRefs: refs,
+      selectedDraftRefs: auto,
+      publishMode: 'publish',
+      publishTiming: 'now',
+      scheduledAt: state.scheduledAt || defaultScheduleValue(),
+    }))
+
+    chrome.storage.local.set({ [PENDING_DRAFTS_KEY]: refs }).catch(() => {})
+
+    set({
+      notice: auto.length
+        ? {
+            kind: 'ok',
+            text: `已带入 ${refs.length} 篇草稿，其中 ${auto.length} 篇可直接发布，其余需到平台后台点发布`,
+          }
+        : {
+            kind: 'info',
+            text: `已带入 ${refs.length} 篇草稿，但这些平台都不支持草稿转发布，请点「打开草稿」到后台发布`,
+          },
+    })
+  },
+
+  clearDraftRefs: () => {
+    set({ draftRefs: [], selectedDraftRefs: [] })
+    chrome.storage.local.remove(PENDING_DRAFTS_KEY).catch(() => {})
+  },
+
+  refreshScheduledJobs: async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'SCHEDULE_LIST' })
+      const jobs = (response?.data || []) as ScheduledJobInfo[]
+      set({
+        scheduledJobs: jobs.map(job => ({
+          id: job.id,
+          title: job.title,
+          publishAt: job.publishAt,
+          platforms: job.platforms || [],
+          kind: job.kind,
+        })),
+      })
+    } catch {
+      // 定时列表拿不到不影响主流程
+    }
+  },
 
   startSync: async () => {
-    const { article, selectedPlatforms } = get()
+    const { article, selectedPlatforms, publishMode, publishTiming, scheduledAt } = get()
+
     if (!article) {
       set({ notice: { kind: 'error', text: '还没有待同步的文章' } })
       return
@@ -304,27 +465,83 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       set({ notice: { kind: 'error', text: '请先选择目标平台' } })
       return
     }
-    await get().runSync(article, selectedPlatforms)
+
+    // 发布 + 定时：只入队，不立即执行
+    if (publishMode === 'publish' && publishTiming === 'schedule') {
+      const publishAt = parseDateTimeLocal(scheduledAt)
+      if (!isScheduleValid(publishAt)) {
+        set({ notice: { kind: 'error', text: '请选择至少 1 分钟之后的定时时间' } })
+        return
+      }
+      await get().runSync(article, selectedPlatforms, {
+        mode: 'publish',
+        timing: 'schedule',
+        publishAt: publishAt!,
+      })
+      return
+    }
+
+    await get().runSync(article, selectedPlatforms, { mode: publishMode, timing: 'now' })
   },
 
   runSync: async (article, platformIds, options = {}) => {
     const syncId = options.syncId || newSyncId()
     const mode = options.mode || get().publishMode
 
+    // 发布模式下把「只支持草稿」的平台剔掉：否则会把它们一起提交，
+    // 适配器再降级成草稿，用户看到的「发布」就成了「又存了一堆草稿」
+    const metaById = new Map(get().platforms.map(platform => [platform.id, platform]))
+    const targets =
+      mode === 'publish'
+        ? platformIds.filter(id => {
+            const meta = metaById.get(id)
+            return !meta || (meta.capabilities || []).includes('publish')
+          })
+        : platformIds
+
+    if (!targets.length) {
+      set({ notice: { kind: 'error', text: '所选的平台都不支持自动发布，请改用「存为草稿」' } })
+      return []
+    }
+
+    // 控制台的两个页签是明确选择：草稿 = 全部存草稿，发布 = 全部尝试公开发布
+    const draftOnlyByPlatform = buildDraftOnlyMap(mode, targets)
+
+    if (mode === 'publish' && options.timing === 'schedule' && options.publishAt) {
+      const publishAt = options.publishAt
+      const scheduled = await requestScheduledJob({
+        article,
+        platforms: targets,
+        publishAt,
+        draftOnlyByPlatform,
+        kind: 'sync',
+        title: article.title,
+      })
+
+      if (!scheduled.ok) {
+        set({ notice: { kind: 'error', text: `加入定时队列失败：${scheduled.error || '未知原因'}` } })
+        return []
+      }
+
+      set({
+        notice: { kind: 'ok', text: `已加入定时队列，将于 ${formatMoment(publishAt)} 自动发布` },
+      })
+      get().refreshScheduledJobs().catch(() => {})
+      return []
+    }
+
     set({
       sync: { running: true, syncId, results: [], stages: {}, error: null },
       notice: null,
+      lastRunKind: mode === 'draft' ? 'draft' : 'publish',
     })
 
     try {
-      const settings = await getPublishSettings()
-      const draftOnlyByPlatform = resolveDraftOnlyMap({ ...settings, mode }, platformIds, get().platforms)
-
       const response = await chrome.runtime.sendMessage({
         type: 'SYNC_ARTICLE',
         payload: {
           article,
-          platforms: platformIds,
+          platforms: targets,
           syncId,
           draftOnlyByPlatform,
           source: 'console',
@@ -333,12 +550,22 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
 
       const results: SyncResult[] = (response?.results || []) as SyncResult[]
       const failed = results.filter(r => !r.success).length
+      const draftCount = results.filter(r => r.success && r.draftOnly !== false).length
+      const publishedCount = results.filter(r => r.success && r.draftOnly === false).length
+
+      const summary =
+        mode === 'draft'
+          ? `已存为草稿：${draftCount} 个平台${failed ? `，${failed} 个失败` : ''}`
+          : `发布完成：${publishedCount} 个平台${draftCount ? `，${draftCount} 个仅存草稿` : ''}${failed ? `，${failed} 个失败` : ''}`
 
       set(state => ({
         sync: { ...state.sync, running: false, results },
-        notice: failed
-          ? { kind: 'error', text: `同步完成：${results.length - failed} 个成功，${failed} 个失败，可在「失败处理」里排查` }
-          : { kind: 'ok', text: `同步完成：${results.length} 个平台全部成功` },
+        notice: { kind: failed ? 'error' : 'ok', text: summary },
+        // 草稿同步完成后默认勾选成功的那些，直接可以「下一步」
+        selectedDraftRefs:
+          mode === 'draft'
+            ? results.filter(r => r.success && r.draftOnly !== false).map(r => r.platform)
+            : state.selectedDraftRefs,
       }))
 
       if (response?.rateLimitWarning) {
@@ -353,6 +580,104 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
         notice: { kind: 'error', text: `同步失败：${(error as Error).message}` },
       }))
       return []
+    }
+  },
+
+  publishSelectedDrafts: async () => {
+    const { draftRefs, selectedDraftRefs, platforms, publishTiming, scheduledAt, article } = get()
+
+    const picked = draftRefs.filter(
+      ref => selectedDraftRefs.includes(ref.platform) && draftPublishMode(ref, platforms) === 'auto'
+    )
+
+    if (!picked.length) {
+      const manualCount = draftRefs.filter(
+        ref => selectedDraftRefs.includes(ref.platform) && draftPublishMode(ref, platforms) === 'manual'
+      ).length
+      set({
+        notice: {
+          kind: 'error',
+          text: manualCount
+            ? '选中的草稿只能到平台后台发布，点每行的「打开草稿」手动发一次'
+            : '请先勾选要发布的草稿',
+        },
+      })
+      return
+    }
+
+    if (publishTiming === 'schedule') {
+      const publishAt = parseDateTimeLocal(scheduledAt)
+      if (!isScheduleValid(publishAt)) {
+        set({ notice: { kind: 'error', text: '请选择至少 1 分钟之后的定时时间' } })
+        return
+      }
+
+      const scheduled = await requestScheduledJob({
+        platforms: picked.map(ref => ref.platform),
+        publishAt,
+        kind: 'publish-drafts',
+        draftRefs: picked,
+        title: article?.title || picked[0]?.title || '草稿转发布',
+      })
+
+      if (!scheduled.ok) {
+        set({ notice: { kind: 'error', text: `加入定时队列失败：${scheduled.error || '未知原因'}` } })
+        return
+      }
+
+      set({
+        notice: {
+          kind: 'ok',
+          text: `已加入定时队列：${picked.length} 篇草稿将于 ${formatMoment(publishAt!)} 发布`,
+        },
+      })
+      get().refreshScheduledJobs().catch(() => {})
+      return
+    }
+
+    const syncId = newSyncId()
+    set({
+      sync: { running: true, syncId, results: [], stages: {}, error: null },
+      notice: null,
+      lastRunKind: 'publish-drafts',
+    })
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'PUBLISH_DRAFTS',
+        payload: { refs: picked, syncId },
+      })
+
+      const results: SyncResult[] = (response?.results || []) as SyncResult[]
+      const okCount = results.filter(r => r.success).length
+      const failed = results.length - okCount
+
+      set(state => ({
+        sync: { ...state.sync, running: false, results },
+        notice: {
+          kind: failed ? 'error' : 'ok',
+          text: failed ? `草稿发布：${okCount} 篇成功，${failed} 篇失败` : `草稿发布：${okCount} 篇全部成功`,
+        },
+      }))
+
+      // 已成功发布的草稿从待发布列表里移除，避免重复点
+      const done = new Set(results.filter(r => r.success).map(r => r.platform))
+      if (done.size) {
+        const left = get().draftRefs.filter(ref => !done.has(ref.platform))
+        set({
+          draftRefs: left,
+          selectedDraftRefs: get().selectedDraftRefs.filter(id => left.some(ref => ref.platform === id)),
+        })
+        if (left.length) chrome.storage.local.set({ [PENDING_DRAFTS_KEY]: left }).catch(() => {})
+        else chrome.storage.local.remove(PENDING_DRAFTS_KEY).catch(() => {})
+      }
+
+      get().refreshHistory().catch(() => {})
+    } catch (error) {
+      set(state => ({
+        sync: { ...state.sync, running: false, error: (error as Error).message },
+        notice: { kind: 'error', text: `草稿发布失败：${(error as Error).message}` },
+      }))
     }
   },
 

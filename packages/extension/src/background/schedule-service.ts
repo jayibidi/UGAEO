@@ -4,8 +4,10 @@
  * 使用 chrome.alarms 在指定时间唤醒 service worker 执行同步/发布。
  * 任务持久化在 chrome.storage.local，浏览器重启后自动重新挂载。
  */
+import type { DraftRef } from '@ugaeo/core'
 import { createLogger } from '../lib/logger'
 import { performSync, generateSyncId, type SyncResult } from './sync-service'
+import { publishDraftRefs } from './publish-drafts'
 
 const logger = createLogger('ScheduleService')
 
@@ -19,7 +21,16 @@ export interface ScheduledJob {
   id: string
   title: string
   cover?: string
-  article: {
+  /**
+   * 任务类型
+   * - sync（默认）：到点执行一次完整同步（可含发布）
+   * - publish-drafts：到点把之前存好的草稿发布出去
+   */
+  kind?: 'sync' | 'publish-drafts'
+  /** kind=publish-drafts 时要发布的草稿 */
+  draftRefs?: DraftRef[]
+  /** kind=sync 时的待同步文章 */
+  article?: {
     title: string
     content?: string
     html?: string
@@ -67,16 +78,22 @@ export async function listScheduledJobs(): Promise<ScheduledJob[]> {
  * 新增定时任务
  */
 export async function addScheduledJob(input: {
-  article: ScheduledJob['article']
+  article?: ScheduledJob['article']
   platforms: string[]
   publishAt: number
   draftOnlyByPlatform?: Record<string, boolean>
+  kind?: ScheduledJob['kind']
+  draftRefs?: DraftRef[]
+  title?: string
 }): Promise<ScheduledJob> {
   const publishAt = Math.max(input.publishAt, Date.now() + MIN_LEAD_MS)
+  const kind = input.kind || 'sync'
   const job: ScheduledJob = {
     id: `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    title: input.article.title || '未命名文章',
-    cover: input.article.cover,
+    title: input.title || input.article?.title || '草稿转发布',
+    cover: input.article?.cover,
+    kind,
+    draftRefs: input.draftRefs,
     article: input.article,
     platforms: input.platforms,
     publishAt,
@@ -122,23 +139,37 @@ export async function runScheduledJob(id: string): Promise<ScheduledJobResult | 
   await writeJobs(jobs.filter(j => j.id !== id))
   await chrome.alarms.clear(`${SCHEDULE_ALARM_PREFIX}${id}`)
 
-  logger.info(`Running scheduled job ${id} - ${job.title}`)
+  logger.info(`Running scheduled job ${id} - ${job.title} (${job.kind || 'sync'})`)
 
   const syncId = generateSyncId()
-  const { results } = await performSync(
-    job.article,
-    job.platforms,
-    {
-      source: 'schedule',
-      syncId,
-      draftOnlyByPlatform: job.draftOnlyByPlatform,
-    },
-    {
+  let results: SyncResult[] = []
+
+  if (job.kind === 'publish-drafts') {
+    results = await publishDraftRefs(job.draftRefs || [], {
       onResult: result => {
-        logger.debug(`Scheduled ${result.platform}:`, result.success ? 'ok' : result.error)
+        logger.debug(`Scheduled draft ${result.platform}:`, result.success ? 'ok' : result.error)
       },
-    }
-  )
+    })
+  } else if (!job.article) {
+    logger.warn(`Scheduled job ${id} has no article, skipped`)
+    return null
+  } else {
+    const sync = await performSync(
+      job.article,
+      job.platforms,
+      {
+        source: 'schedule',
+        syncId,
+        draftOnlyByPlatform: job.draftOnlyByPlatform,
+      },
+      {
+        onResult: result => {
+          logger.debug(`Scheduled ${result.platform}:`, result.success ? 'ok' : result.error)
+        },
+      }
+    )
+    results = sync.results
+  }
 
   const payload: ScheduledJobResult = {
     jobId: job.id,

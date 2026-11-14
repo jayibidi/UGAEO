@@ -87,7 +87,26 @@ type MessageAction =
   | { type: 'AI_LIST_MODELS'; payload?: { baseUrl?: string; apiKey?: string } }
   | { type: 'AI_TEST'; payload?: { baseUrl?: string; apiKey?: string; model?: string } }
   | { type: 'AI_TASK'; payload: AITask }
-  | { type: 'SCHEDULE_CREATE'; payload: { article: any; platforms: string[]; publishAt: number; draftOnlyByPlatform?: Record<string, boolean> } }
+  | {
+      type: 'SCHEDULE_CREATE'
+      payload: {
+        article?: any
+        platforms: string[]
+        publishAt: number
+        draftOnlyByPlatform?: Record<string, boolean>
+        /** sync（默认）= 到点同步文章；publish-drafts = 到点发布已有草稿 */
+        kind?: 'sync' | 'publish-drafts'
+        draftRefs?: Array<{ platform: string; postId?: string; postUrl?: string; title?: string }>
+        title?: string
+      }
+    }
+  | {
+      type: 'PUBLISH_DRAFTS'
+      payload: {
+        refs: Array<{ platform: string; postId?: string; postUrl?: string; title?: string }>
+        syncId?: string
+      }
+    }
   | { type: 'SCHEDULE_LIST' }
   | { type: 'SCHEDULE_CANCEL'; payload: { id: string } }
   | { type: 'SCHEDULE_LAST_RESULT' }
@@ -686,17 +705,40 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     }
 
     case 'SCHEDULE_CREATE': {
-      const { article, platforms, publishAt, draftOnlyByPlatform } = message.payload
+      const { article, platforms, publishAt, draftOnlyByPlatform, kind, draftRefs, title } = message.payload
       if (!platforms?.length) {
         return { ok: false, error: '请先选择目标平台' }
+      }
+      if (publishAt < Date.now() + 60 * 1000) {
+        return { ok: false, error: '定时发布至少要晚于当前时间 1 分钟' }
       }
       const job: ScheduledJob = await addScheduledJob({
         article,
         platforms,
         publishAt,
         draftOnlyByPlatform,
+        kind,
+        draftRefs,
+        title,
       })
       return { ok: true, data: job }
+    }
+
+    case 'PUBLISH_DRAFTS': {
+      const { refs, syncId } = message.payload
+      if (!refs?.length) {
+        return { results: [] }
+      }
+
+      const sendProgress = (msg: Record<string, unknown>) => {
+        chrome.runtime.sendMessage(syncId ? { ...msg, syncId } : msg).catch(() => {})
+      }
+
+      const { publishDraftRefs } = await import('./publish-drafts')
+      const results = await publishDraftRefs(refs, {
+        onResult: result => sendProgress({ type: 'SYNC_PROGRESS', payload: { result } }),
+      })
+      return { results }
     }
 
     case 'SCHEDULE_LIST': {

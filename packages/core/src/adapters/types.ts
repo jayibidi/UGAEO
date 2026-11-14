@@ -131,6 +131,24 @@ export interface PublishOptions {
 }
 
 /**
+ * 已存在草稿的引用
+ *
+ * 「先存草稿，确认后再发布」需要把上一次同步创建的草稿标识带回来。
+ * 只有声明了 publish_existing_draft 能力的平台才能直接发布它 ——
+ * 其余平台宁可提示「去后台发布」，也不重新创建一篇造成重复内容。
+ */
+export interface DraftRef {
+  /** 平台 id */
+  platform: string
+  /** 平台侧的草稿 / 文章 id（API 平台通常都会返回） */
+  postId?: string
+  /** 草稿编辑页（拿不到 id 时用于人工打开） */
+  postUrl?: string
+  /** 文章标题，仅用于界面展示 */
+  title?: string
+}
+
+/**
  * 平台适配器接口
  */
 /**
@@ -188,6 +206,14 @@ export interface PlatformAdapter {
 
   /** 删除文章 (如果支持) */
   delete?(postId: string): Promise<void>
+
+  /**
+   * 发布一篇已存在的草稿（可选，对应 capabilities 里的 publish_existing_draft）
+   *
+   * 只在「创建草稿」和「发布草稿」是两个独立接口的平台实现。
+   * 未实现的平台由调用方提示用户去后台手动发布，不会静默新建一篇。
+   */
+  publishExistingDraft?(ref: DraftRef): Promise<SyncResult>
 
   /** 自检信息（页面驱动类平台实现，用于诊断面板） */
   getDiagnostics?(): AdapterDiagnostics

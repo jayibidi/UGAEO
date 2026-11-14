@@ -140,6 +140,25 @@ describe('页面驱动平台的自检配置', () => {
     }
   })
 
+  it('声明 publish_existing_draft 的适配器必须真的实现了发布草稿的方法', () => {
+    // 能力是给 UI 看的：声明了就会被当成「草稿可以一键发布」，
+    // 没实现方法的话用户点了只会拿到一句「该平台不支持」——比不声明更糟
+    const liars = adapters.filter(
+      adapter =>
+        adapter.meta.capabilities.includes('publish_existing_draft') &&
+        typeof adapter.publishExistingDraft !== 'function'
+    )
+    expect(liars.map(adapter => adapter.meta.id), '声明了能力却没有实现 publishExistingDraft').toEqual([])
+  })
+
+  it('草稿转发布能力必须建立在「能公开发布」之上', () => {
+    const bad = adapters
+      .filter(adapter => adapter.meta.capabilities.includes('publish_existing_draft'))
+      .filter(adapter => !adapter.meta.capabilities.includes('publish'))
+      .map(adapter => adapter.meta.id)
+    expect(bad, '不能发布却声称能发布已有草稿').toEqual([])
+  })
+
   it('编辑器型平台必须提供标题 / 正文 / 发布按钮选择器', () => {
     const broken: string[] = []
     for (const adapter of pageAdapters) {
