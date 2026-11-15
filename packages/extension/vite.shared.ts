@@ -131,6 +131,14 @@ export function createExtensionConfig(packageDir: string, mode: string): UserCon
       },
     },
     build: {
+      /**
+       * 目标内核锁定 chrome102
+       *
+       * 不锁的话 Vite 会跟着最新浏览器走，一旦写出 `??=`、静态初始化块这类新语法，
+       * 360 极速 / 旧版 Edge 整包报 SyntaxError（表现是点扩展图标完全没反应）。
+       * 102 是 MV3 + chrome.storage.session + declarativeNetRequest 的实际上限。
+       */
+      target: ['chrome102'],
       // 开发模式: 不压缩，生成 sourcemap
       minify: isDev ? false : 'esbuild',
       sourcemap: isDev ? 'inline' : false,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, LogIn, Send, Users } from 'lucide-react'
+import { isLocalToolPlatform } from '@ugaeo/core'
 import { collectFailures, useConsoleStore } from '../lib/store'
 import { formatRelative } from '../lib/format'
 import { PlatformIcon, ResultPill } from '../components/PlatformBadge'
@@ -44,7 +45,8 @@ export function OverviewPage() {
     refreshHistory().catch(() => {})
   }, [refreshHistory])
 
-  const dslPlatforms = platforms.filter(p => p.sourceType !== 'cms')
+  // 本地工具（Markdown 压缩包）不是平台，不能占登录率的分母
+  const dslPlatforms = platforms.filter(p => p.sourceType !== 'cms' && !isLocalToolPlatform(p.id))
   const authed = dslPlatforms.filter(p => p.isAuthenticated)
   const unauthed = dslPlatforms.filter(p => !p.isAuthenticated)
   const failures = useMemo(() => collectFailures(history, 7), [history])
@@ -149,7 +151,7 @@ export function OverviewPage() {
                 onClick={() => openPlatform(platform)}
                 className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-left hover:bg-muted/50"
               >
-                <PlatformIcon icon={platform.icon} name={platform.name} size={16} />
+                <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={16} />
                 <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{platform.name}</span>
                 <LogIn className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
               </button>

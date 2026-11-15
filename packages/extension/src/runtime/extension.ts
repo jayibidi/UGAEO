@@ -8,6 +8,18 @@ import { buildCookieQuery } from './cookie-query'
 // 默认请求超时：30 秒
 const DEFAULT_FETCH_TIMEOUT = 30 * 1000
 
+/**
+ * 会话级存储区域
+ *
+ * chrome.storage.session 是 Chrome 102 才有的；360 极速 / 旧版 Chromium 上它是 undefined，
+ * 直接调会抛 "Cannot read properties of undefined (reading 'get')"。
+ * 老内核退回 storage.local —— 只是活得更久一点，不影响功能。
+ */
+function sessionArea(): chrome.storage.StorageArea {
+  const area = (chrome.storage as unknown as { session?: chrome.storage.StorageArea }).session
+  return area ?? chrome.storage.local
+}
+
 export class ExtensionRuntime implements RuntimeInterface {
   readonly type = 'extension' as const
   // 使用时间戳+随机数避免规则 ID 冲突（扩展重载或并发场景）
@@ -109,15 +121,19 @@ export class ExtensionRuntime implements RuntimeInterface {
 
   /**
    * 会话存储
+   *
+   * chrome.storage.session 是 Chrome 102 才有的；360 极速 / 旧版 Chromium 上它是 undefined，
+   * 直接调会抛 "Cannot read properties of undefined"。这里退回 storage.local，
+   * 语义上只是「活得更久一点」，不影响功能。
    */
   session = {
     async get<T>(key: string): Promise<T | null> {
-      const result = await chrome.storage.session.get(key)
+      const result = await sessionArea().get(key)
       return (result[key] as T) ?? null
     },
 
     async set<T>(key: string, value: T): Promise<void> {
-      await chrome.storage.session.set({ [key]: value })
+      await sessionArea().set({ [key]: value })
     },
   }
 
@@ -215,21 +231,42 @@ export class ExtensionRuntime implements RuntimeInterface {
 
     async waitForLoad(tabId: number, timeout = 30000): Promise<void> {
       return new Promise((resolve, reject) => {
+        let settled = false
+        const finish = () => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeoutId)
+          chrome.tabs.onUpdated.removeListener(listener)
+          // 额外等待让页面 JS 初始化
+          setTimeout(resolve, 1000)
+        }
+
         const timeoutId = setTimeout(() => {
+          if (settled) return
+          settled = true
           chrome.tabs.onUpdated.removeListener(listener)
           reject(new Error('Tab load timeout'))
         }, timeout)
 
         const listener = (updatedTabId: number, info: chrome.tabs.TabChangeInfo) => {
-          if (updatedTabId === tabId && info.status === 'complete') {
-            clearTimeout(timeoutId)
-            chrome.tabs.onUpdated.removeListener(listener)
-            // 额外等待让页面 JS 初始化
-            setTimeout(resolve, 1000)
-          }
+          if (updatedTabId === tabId && info.status === 'complete') finish()
         }
         chrome.tabs.onUpdated.addListener(listener)
+
+        // 关键：监听器挂上之前页面可能就已经加载完了（缓存命中 / 快速跳转），
+        // 那样 'complete' 事件永远不会再来，只能干等到超时。
+        chrome.tabs.get(tabId)
+          .then(tab => {
+            if (tab.status === 'complete') finish()
+          })
+          .catch(() => {
+            // tab 已被关掉，交给超时处理
+          })
       })
+    },
+
+    async remove(tabId: number): Promise<void> {
+      await chrome.tabs.remove(tabId)
     },
 
     async executeScript<T, A extends unknown[]>(

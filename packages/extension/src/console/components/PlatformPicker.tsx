@@ -1,4 +1,5 @@
 import { LogIn, Check, Lock } from 'lucide-react'
+import { isLocalToolPlatform } from '@ugaeo/core'
 import { useConsoleStore } from '../lib/store'
 import { AuthPill, PlatformIcon, PublishCapability } from './PlatformBadge'
 import { splitPlatformsByMode } from '../lib/publish-flow'
@@ -7,8 +8,8 @@ import { splitPlatformsByMode } from '../lib/publish-flow'
  * 平台选择器
  *
  * 两种模式看到的平台不一样，这是两个页签「行为不同」的第一层体现：
- * - 存为草稿：所有已登录平台都能收草稿
- * - 立即发布：只有声明了 publish 能力的平台可选，其余锁住并说明原因
+ * - 存为草稿：**全部平台**（34 个）都能收草稿，未登录的标出来，同步前先登录
+ * - 立即发布：只有「已登录 + 声明了 publish 能力」的平台可选，其余锁住并说明原因
  */
 export function PlatformPicker() {
   const {
@@ -23,8 +24,11 @@ export function PlatformPicker() {
   } = useConsoleStore()
 
   const { selectable, locked } = splitPlatformsByMode(platforms, publishMode)
-  const unauthed = platforms.filter(platform => !platform.isAuthenticated)
   const isPublishMode = publishMode === 'publish'
+  // 草稿模式下列表已经是全量（含未登录），不用再单列一次
+  const unauthed = isPublishMode
+    ? platforms.filter(platform => !platform.isAuthenticated && !isLocalToolPlatform(platform.id))
+    : []
 
   if (!platforms.length) {
     return (
@@ -43,7 +47,7 @@ export function PlatformPicker() {
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-medium">
-            {isPublishMode ? '可直发平台' : '已登录平台'}
+            {isPublishMode ? '可直发平台' : '全部平台'}
             <span className="ml-1.5 text-xs font-normal text-muted-foreground">{selectable.length} 个</span>
           </h3>
           <div className="flex gap-1">
@@ -67,7 +71,7 @@ export function PlatformPicker() {
                 这类支持自动发布的平台，或者切到「存为草稿」用全部平台。
               </>
             ) : (
-              <>还没有检测到已登录的平台，去下面「未登录」里点开对应站点登录后再回来检测。</>
+              <>没有读取到平台列表，请打开扩展弹窗刷新一次再回来。</>
             )}
           </div>
         ) : (
@@ -89,11 +93,16 @@ export function PlatformPicker() {
                   >
                     {checked && <Check className="h-3 w-3" />}
                   </span>
-                  <PlatformIcon icon={platform.icon} name={platform.name} />
+                  <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{platform.name}</span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {platform.username || (platform.sourceType === 'cms' ? platform.homepage : '已登录')}
+                      {platform.username ||
+                        (platform.sourceType === 'cms'
+                          ? platform.homepage
+                          : platform.isAuthenticated
+                            ? '已登录'
+                            : '未登录 · 同步前先登录')}
                     </span>
                   </span>
                   <PublishCapability platform={platform} />
@@ -123,7 +132,7 @@ export function PlatformPicker() {
                 }
               >
                 <Lock className="h-4 w-4 flex-shrink-0 text-muted-foreground/60" />
-                <PlatformIcon icon={platform.icon} name={platform.name} />
+                <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-muted-foreground">{platform.name}</span>
                   <span className="block truncate text-[11px] text-muted-foreground/70">没有自动发布接口</span>
@@ -147,7 +156,7 @@ export function PlatformPicker() {
                 key={platform.id}
                 className="flex items-center gap-2.5 rounded-lg border border-dashed px-3 py-2.5"
               >
-                <PlatformIcon icon={platform.icon} name={platform.name} />
+                <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-muted-foreground">{platform.name}</span>
                   <span className="block truncate text-[11px] text-muted-foreground/70">未检测到登录态</span>

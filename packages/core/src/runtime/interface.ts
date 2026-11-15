@@ -100,6 +100,13 @@ export interface RuntimeInterface {
       func: (...args: A) => T | Promise<T>,
       args: A
     ): Promise<T>
+    /**
+     * 关闭 tab（可选）
+     *
+     * 页面驱动发布靠它把上一轮创建的编辑器标签页清掉：
+     * 复用旧标签页会把上次的内容留在编辑器里，插入后变成两篇拼在一起。
+     */
+    remove?(tabId: number): Promise<void>
   }
 
   /**

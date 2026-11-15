@@ -1,6 +1,7 @@
 import { Check, X, Loader2, ExternalLink, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { groupByPublishLayer } from '@ugaeo/core'
+import { PlatformIcon } from '../platform-icon'
 import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './types'
 
 interface PlatformListProps {
@@ -214,15 +215,8 @@ function PlatformRow({
         result={result}
       />
 
-      {/* Platform icon */}
-      <img
-        src={platform.icon}
-        alt={platform.name}
-        className="w-5 h-5 rounded flex-shrink-0"
-        onError={(e) => {
-          (e.target as HTMLImageElement).src = '/assets/icon-48.png'
-        }}
-      />
+      {/* Platform icon（平台自带图标 / 字母头像，绝不退回扩展图标） */}
+      <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={20} />
 
       {/* Platform name */}
       <span className="text-sm flex-1 truncate">{platform.name}</span>

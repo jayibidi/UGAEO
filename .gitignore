@@ -9,6 +9,11 @@ dist
 !.env.example
 coverage
 *.zip
+*.crx
+# pnpm bundle 输出的安装说明（与 zip 同目录，不进仓库）
+ugaeo-*-安装说明.*
+# crx 签名私钥：绝不能提交
+scripts/.crx-key.pem
 
 # IDE
 .vscode/*

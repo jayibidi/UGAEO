@@ -1,6 +1,6 @@
 {
   "name": "ugaeo",
-  "version": "2.5.0",
+  "version": "2.6.1",
   "private": true,
   "description": "开源免费的跨平台文章同步 Chrome 扩展：微信公众号一键分发到知乎、掘金、CSDN、头条号等 34 个平台",
   "workspaces": [
@@ -20,7 +20,9 @@
     "typecheck": "pnpm --filter @ugaeo/core typecheck && pnpm --filter @ugaeo/extension typecheck",
     "clean": "pnpm -r clean && rm -rf node_modules",
     "version:bump": "node scripts/bump-version.mjs",
-    "version:check": "node scripts/bump-version.mjs --check"
+    "version:check": "node scripts/bump-version.mjs --check",
+    "icons": "node scripts/fetch-platform-icons.mjs",
+    "crx": "node scripts/make-crx.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

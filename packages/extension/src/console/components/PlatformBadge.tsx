@@ -1,20 +1,8 @@
 import type { Platform, SyncResult } from '../lib/types'
 import { CONTENT_KIND_LABEL, getPlatformProfile } from '@ugaeo/core'
 
-export function PlatformIcon({ icon, name, size = 18 }: { icon?: string; name: string; size?: number }) {
-  return (
-    <img
-      src={icon || '/assets/icon-48.png'}
-      alt={name}
-      width={size}
-      height={size}
-      className="flex-shrink-0 rounded"
-      onError={(event) => {
-        (event.target as HTMLImageElement).src = '/assets/icon-48.png'
-      }}
-    />
-  )
-}
+// 图标组件放在 src/components 下，控制台和弹窗共用同一套「平台自带图标 / 字母头像」逻辑
+export { PlatformIcon } from '../../components/platform-icon'
 
 export function AuthPill({
   authed,

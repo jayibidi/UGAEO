@@ -13,7 +13,7 @@ import {
 import { useConsoleStore } from '../lib/store'
 import { AuthPill, ContentKindTag, PlatformIcon, PublishCapability } from '../components/PlatformBadge'
 import { formatRelative, loginHint } from '../lib/format'
-import { countByContentKind, groupByPublishLayer } from '@ugaeo/core'
+import { countByContentKind, groupByPublishLayer, isLocalToolPlatform } from '@ugaeo/core'
 
 type Filter = 'all' | 'authed' | 'unauthed'
 
@@ -37,7 +37,8 @@ export function AccountsPage() {
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<Record<string, { success: boolean; message?: string }>>({})
 
-  const dslPlatforms = platforms.filter(p => p.sourceType !== 'cms')
+  // 本地工具（Markdown 压缩包）没有账号概念，不进这张表
+  const dslPlatforms = platforms.filter(p => p.sourceType !== 'cms' && !isLocalToolPlatform(p.id))
   const authedCount = dslPlatforms.filter(p => p.isAuthenticated).length
   // 无需登录的平台也计入可用，但文案上要区分开，不能笼统说「已登录」
   const publicCount = dslPlatforms.filter(p => p.authMode === 'public').length
@@ -159,7 +160,7 @@ export function AccountsPage() {
             {group.items.map(platform => (
               <div key={platform.id} className="uga-card p-4">
                 <div className="flex items-start gap-2.5">
-                  <PlatformIcon icon={platform.icon} name={platform.name} size={22} />
+                  <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={22} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="truncate text-sm font-medium">{platform.name}</span>

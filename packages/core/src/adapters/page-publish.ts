@@ -11,7 +11,18 @@
  * 三级结果，绝不假装成功：
  * - published：检测到发布成功（URL 跳转 / 成功提示）
  * - submitted：已点击发布但未能确认最终状态
- * - filled：内容已填好但没找到发布按钮 → 当作草稿，返回编辑器地址让用户手动发
+ * - drafted：草稿模式下点到了平台自己的「存草稿」，内容确实落库
+ * - filled：内容已填好但没点发布、也没存草稿 → 返回编辑器地址让用户接手
+ *
+ * 2.5.1 起的关键变化（这版专门修「重 SPA 平台填充失败」）：
+ * - 元素一律「轮询等待」而不是查一次：小红书 / 头条的编辑器常常要 5～10 秒才渲染，
+ *   以前固定等 2.5 秒就注入，必然查不到标题框，直接判失败。
+ * - 进入编辑器前可以配 `entrySteps`（小红书：写长文 → 新的创作），
+ *   发布前可以配 `prepareSteps`（小红书长文：一键排版 → 下一步）。
+ * - 注入前先判断是不是被踢到登录页，命中就返回 needs_login 并让用户去登录，
+ *   而不是报「未找到标题输入框，页面结构可能已变化」这种会误导人的结论。
+ * - 草稿模式会点平台自己的「存草稿」，避免内容只活在关掉就丢的编辑器里。
+ * - 查不到的组会带 `missing` 返回，便于用户/自检页定位到底哪一段选择器失效。
  */
 import { CodeAdapter } from './code-adapter'
 import type { Article, AuthResult, SyncResult, PlatformMeta } from '../types'
@@ -31,7 +42,7 @@ export interface PagePublishConfig {
   editorSelectors: string[]
   /** 发布按钮文案（按顺序匹配） */
   publishTexts: string[]
-  /** 是否必须有图片（小红书这类图文平台） */
+  /** 是否必须有图片（小红书图文这类平台） */
   requireImages?: boolean
   /**
    * 发布形态
@@ -40,8 +51,30 @@ export interface PagePublishConfig {
    *   「打开投稿页 + 提示手动提交」，而不是报失败
    */
   mode?: 'editor' | 'submission'
-  /** 编辑器是重 SPA 时，注入前额外等待的时间（毫秒） */
+  /** 编辑器是重 SPA 时，创建标签页后额外等待的时间（毫秒） */
   extraWaitMs?: number
+  /**
+   * 进入编辑器前要依次点击的入口
+   *
+   * 每个元素是一组候选文案（命中任意一个即可），例如小红书的
+   * 「写长文」→「新的创作」。找不到时不算失败，继续尝试填内容。
+   */
+  entrySteps?: string[][]
+  /** 发布前必做的整理步骤（小红书长文：一键排版 → 下一步），找不到就跳过 */
+  prepareSteps?: string[][]
+  /** 草稿模式下点「存草稿」用的文案；不配就不点，只把内容留在编辑器里 */
+  draftTexts?: string[]
+  /** 发布后的二次确认文案（默认 确定 / 确认发布 / 继续发布） */
+  confirmTexts?: string[]
+  /** 等待标题框 / 编辑器的上限（毫秒），重 SPA 可调大 */
+  waitMs?: number
+  /**
+   * 纯人工平台：只打开入口页，不注入内容
+   *
+   * 百科词条、问答这类没有「文章编辑器」的形态，硬填只会把标题写进搜索框。
+   * 打开页面 + 说清楚要人工做什么，比假装同步成功诚实。
+   */
+  manualOnly?: boolean
 }
 
 export interface InjectedPublishPayload {
@@ -51,17 +84,32 @@ export interface InjectedPublishPayload {
   titleSelectors: string[]
   editorSelectors: string[]
   publishTexts: string[]
+  draftTexts: string[]
+  confirmTexts: string[]
+  entrySteps: string[][]
+  prepareSteps: string[][]
   requireImages: boolean
   autoPublish: boolean
+  waitMs: number
 }
 
-export type InjectedStage = 'published' | 'submitted' | 'filled' | 'failed'
+export type InjectedStage =
+  | 'published'
+  | 'submitted'
+  | 'drafted'
+  | 'filled'
+  | 'needs_login'
+  | 'failed'
 
 export interface InjectedPublishResult {
   ok: boolean
   stage: InjectedStage
   message?: string
   url?: string
+  /** 没命中的环节：title / editor / publish / entry / prepare */
+  missing?: string[]
+  /** 实际停留的页面地址，便于排查是否被重定向 */
+  finalUrl?: string
 }
 
 /**
@@ -72,21 +120,138 @@ export interface InjectedPublishResult {
  */
 export async function injectedPublish(payload: InjectedPublishPayload): Promise<InjectedPublishResult> {
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+  const norm = (value: string | null | undefined) => (value || '').replace(/\s+/g, '')
+  const missing: string[] = []
 
-  const queryFirst = <T extends Element>(selectors: string[]): T | null => {
+  const isUsable = (el: Element | null): el is HTMLElement => {
+    if (!el || !(el instanceof HTMLElement)) return false
+    const rect = el.getBoundingClientRect()
+    if (rect.width < 2 || rect.height < 2) return false
+    const style = window.getComputedStyle(el)
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+  }
+
+  /** 在候选选择器里找第一个可用元素（只查一次） */
+  const queryFirst = <T extends HTMLElement>(selectors: string[]): T | null => {
     for (const selector of selectors) {
-      const el = document.querySelector<T>(selector)
-      if (el) return el
+      let nodes: NodeListOf<Element>
+      try {
+        nodes = document.querySelectorAll(selector)
+      } catch {
+        continue
+      }
+      for (const node of Array.from(nodes)) {
+        if (isUsable(node)) return node as T
+      }
     }
     return null
   }
 
-  const isUsable = (el: HTMLElement | null): boolean => {
-    if (!el) return false
-    const rect = el.getBoundingClientRect()
-    if (rect.width < 2 || rect.height < 2) return false
-    const style = window.getComputedStyle(el)
-    return style.display !== 'none' && style.visibility !== 'hidden'
+  /** 轮询等待元素出现：重 SPA 的编辑器常常要好几秒才渲染出来 */
+  const waitFor = async <T extends HTMLElement>(
+    selectors: string[],
+    timeoutMs: number,
+    intervalMs = 250
+  ): Promise<T | null> => {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const hit = queryFirst<T>(selectors)
+      if (hit) return hit
+      await sleep(intervalMs)
+    }
+    return null
+  }
+
+  /** 是否被重定向到登录页 */
+  const looksLikeLogin = (): boolean => {
+    const url = location.href
+    if (/\/login|signin|passport|\/sso|auth\//i.test(url)) return true
+    // 页面上有可见的密码框，基本就是在等人的登录页
+    const pwd = document.querySelector<HTMLInputElement>('input[type="password"]')
+    return !!pwd && isUsable(pwd)
+  }
+
+  /**
+   * 按文案找可点击元素
+   *
+   * 先精确匹配，再退回「包含匹配」：不少平台的按钮是「发布文章」「立即发布」
+   * 这类带修饰的词，只做全等会一个都命中不了。但包含匹配要排除
+   * 「存草稿 / 定时 / 预览 / 取消」这类会把内容带去别处的按钮。
+   */
+  const findClickable = (texts: string[], allowDraft = false): HTMLElement | null => {
+    const blocks = allowDraft
+      ? ['取消', '删除', '设置', '预览', '定时']
+      : ['取消', '删除', '设置', '预览', '定时', '草稿', '存草']
+
+    const nodes = Array.from(
+      document.querySelectorAll<HTMLElement>('button, [role="button"], a, div, span, li')
+    ).filter(node => {
+      if (node.getAttribute('aria-disabled') === 'true') return false
+      if ((node as HTMLButtonElement).disabled) return false
+      return isUsable(node)
+    })
+
+    /** 深度：命中同样文案的父子节点里，取最里层那个，点击才落到真正的按钮上 */
+    const depthOf = (el: HTMLElement): number => {
+      let depth = 0
+      let node: HTMLElement | null = el
+      while (node) {
+        depth++
+        node = node.parentElement
+      }
+      return depth
+    }
+
+    for (const text of texts) {
+      const target = norm(text)
+      if (!target) continue
+      const exact = nodes.filter(node => norm(node.textContent) === target)
+      if (exact.length > 0) {
+        exact.sort((a, b) => depthOf(b) - depthOf(a))
+        const hit = exact[0]
+        return hit.closest('button, [role="button"], a, li') || hit
+      }
+    }
+
+    for (const text of texts) {
+      const target = norm(text)
+      if (!target) continue
+      const loose = nodes.find(node => {
+        const own = norm(node.textContent)
+        if (!own.includes(target)) return false
+        // 只接受「比目标文案长一点」的按钮，避免匹配到整块容器
+        if (own.length > target.length + 6) return false
+        if (blocks.some(word => own.includes(word))) return false
+        return true
+      })
+      if (loose) return loose.closest('button, [role="button"], a, li') || loose
+    }
+
+    return null
+  }
+
+  /** 等按钮出现再点，返回是否点到 */
+  const clickByTexts = async (
+    texts: string[],
+    opts: { allowDraft?: boolean; timeoutMs?: number } = {}
+  ): Promise<boolean> => {
+    if (!texts.length) return false
+    const deadline = Date.now() + (opts.timeoutMs ?? 3000)
+    while (Date.now() < deadline) {
+      const el = findClickable(texts, opts.allowDraft ?? false)
+      if (el) {
+        try {
+          el.scrollIntoView({ block: 'center' })
+        } catch {
+          // 忽略：部分布局不支持 scrollIntoView
+        }
+        el.click()
+        await sleep(500)
+        return true
+      }
+      await sleep(250)
+    }
+    return false
   }
 
   /** 受控组件（React）必须走原生 setter 才能触发状态更新 */
@@ -101,48 +266,25 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     el.dispatchEvent(new Event('change', { bubbles: true }))
   }
 
-  /**
-   * 按文案找可点击元素
-   *
-   * 先精确匹配，再退回「包含匹配」：不少平台的按钮是「发布文章」「立即发布」
-   * 这类带修饰的词，只做全等会一个都命中不了。但包含匹配要排除
-   * 「存草稿 / 定时 / 预览 / 取消」这类会把内容带去别处的按钮。
-   */
-  const findButton = (texts: string[]): HTMLElement | null => {
-    const normalize = (value: string | null) => (value || '').replace(/\s+/g, '')
-    const BLOCK_WORDS = ['取消', '删除', '设置', '预览', '定时', '草稿']
-
-    const nodes = Array.from(
-      document.querySelectorAll<HTMLElement>('button, [role="button"], a, div, span')
-    ).filter(node => {
-      if (node.getAttribute('aria-disabled') === 'true') return false
-      if ((node as HTMLButtonElement).disabled) return false
-      return isUsable(node)
-    })
-
-    for (const text of texts) {
-      const target = normalize(text)
-      if (!target) continue
-      const exact = nodes.find(node => normalize(node.textContent) === target)
-      if (exact) return exact.closest('button, [role="button"], a') || exact
+  /** contenteditable 的标题（少数平台把标题也做成富文本） */
+  const setEditableText = (el: HTMLElement, value: string) => {
+    el.focus()
+    const selection = window.getSelection()
+    if (selection) {
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      selection.removeAllRanges()
+      selection.addRange(range)
     }
-
-    for (const text of texts) {
-      const target = normalize(text)
-      if (!target) continue
-      const loose = nodes.find(node => {
-        const own = normalize(node.textContent)
-        if (!own.includes(target)) return false
-        // 只接受「比目标文案长一点」的按钮，避免匹配到整块容器
-        if (own.length > target.length + 4) return false
-        if (BLOCK_WORDS.some(word => own.includes(word))) return false
-        return true
-      })
-      if (loose) return loose.closest('button, [role="button"], a') || loose
+    try {
+      document.execCommand('insertText', false, value)
+    } catch {
+      el.textContent = value
     }
-
-    return null
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value, inputType: 'insertText' }))
   }
+
+  const textLength = (el: HTMLElement) => (el.innerText || el.textContent || '').replace(/\s+/g, '').length
 
   /** 把图片塞进 file input（图文平台必需） */
   const uploadImages = async (input: HTMLInputElement, urls: string[]) => {
@@ -167,36 +309,95 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     return files.length
   }
 
-  // ── 1. 标题 ──
-  const titleEl = queryFirst<HTMLInputElement | HTMLTextAreaElement>(payload.titleSelectors)
-  if (!titleEl || !isUsable(titleEl)) {
-    return { ok: false, stage: 'failed', message: '未找到标题输入框，页面结构可能已变化' }
+  // ── 0. 先确认没被踢到登录页 ──
+  if (looksLikeLogin()) {
+    return {
+      ok: false,
+      stage: 'needs_login',
+      message: '打开编辑器时被重定向到登录页，请先在浏览器里登录该平台，再重新同步',
+      url: location.href,
+      finalUrl: location.href,
+    }
   }
-  titleEl.focus()
-  setNativeValue(titleEl, payload.title)
-  await sleep(150)
 
-  // ── 2. 正文 ──
-  const rawEditor = queryFirst<HTMLElement>(payload.editorSelectors)
+  // ── 1. 进入编辑器（小红书：写长文 → 新的创作）──
+  for (const step of payload.entrySteps) {
+    const clicked = await clickByTexts(step, { timeoutMs: 2500 })
+    if (!clicked) {
+      missing.push(`entry:${step[0]}`)
+      continue
+    }
+    // 每次点完等一拍，SPA 可能要跳路由 / 拉组件
+    await sleep(1200)
+    if (looksLikeLogin()) {
+      return {
+        ok: false,
+        stage: 'needs_login',
+        message: '点击进入编辑器后被要求登录，请先登录该平台再重新同步',
+        url: location.href,
+        finalUrl: location.href,
+      }
+    }
+  }
+
+  // ── 2. 标题（轮询等待，重 SPA 经常要好几秒）──
+  const titleEl = await waitFor<HTMLInputElement | HTMLTextAreaElement>(
+    payload.titleSelectors,
+    payload.waitMs
+  )
+  if (!titleEl) {
+    if (looksLikeLogin()) {
+      return { ok: false, stage: 'needs_login', message: '当前是登录页，请先登录该平台', url: location.href, finalUrl: location.href }
+    }
+    return {
+      ok: false,
+      stage: 'failed',
+      message: `等待 ${payload.waitMs}ms 仍没找到标题输入框（可能被弹窗挡住或页面改版）`,
+      url: location.href,
+      missing: [...missing, 'title'],
+      finalUrl: location.href,
+    }
+  }
+
+  if (titleEl.isContentEditable) {
+    setEditableText(titleEl, payload.title)
+  } else {
+    titleEl.focus()
+    setNativeValue(titleEl, payload.title)
+  }
+  await sleep(200)
+
+  // ── 3. 正文 ──
+  const rawEditor = await waitFor<HTMLElement>(payload.editorSelectors, payload.waitMs)
   if (!rawEditor) {
-    return { ok: false, stage: 'failed', message: '未找到正文编辑器，页面结构可能已变化' }
+    return {
+      ok: false,
+      stage: 'failed',
+      message: '找到了标题框但没找到正文编辑器，页面结构可能已变化',
+      url: location.href,
+      missing: [...missing, 'editor'],
+      finalUrl: location.href,
+    }
   }
 
   // 老式后台（UEditor / KindEditor）把编辑器套在 iframe 里，
   // 真正可编辑的是 iframe 内文档的 body，直接改 iframe 元素没有意义。
   let editor = rawEditor
   if (rawEditor.tagName === 'IFRAME') {
-    const innerBody = (rawEditor as HTMLIFrameElement).contentDocument?.body
-    if (innerBody) editor = innerBody as HTMLElement
-  }
-
-  if (!isUsable(editor)) {
-    return { ok: false, stage: 'failed', message: '未找到正文编辑器，页面结构可能已变化' }
+    const innerBody = (rawEditor as unknown as HTMLIFrameElement).contentDocument?.body
+    if (innerBody) editor = innerBody as unknown as HTMLElement
   }
 
   editor.focus()
   editor.click()
-  await sleep(150)
+  await sleep(200)
+
+  // 先全选再插入：复用标签页时不会把上一次的内容留在前面造成重复
+  try {
+    document.execCommand('selectAll')
+  } catch {
+    // 忽略：不支持就算了，后面还有兜底
+  }
 
   // 优先走 execCommand（能被富文本编辑器正确接管），失败再退回 innerHTML
   let inserted = false
@@ -206,18 +407,24 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     inserted = false
   }
 
-  const textLength = (el: HTMLElement) => (el.innerText || '').replace(/\s+/g, '').length
   if (!inserted || textLength(editor) < 10) {
     editor.innerHTML = payload.html
     editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: payload.html, inputType: 'insertText' }))
   }
-  await sleep(600)
+  await sleep(800)
 
   if (textLength(editor) < 5) {
-    return { ok: false, stage: 'failed', message: '正文写入失败，编辑器未接受内容' }
+    return {
+      ok: false,
+      stage: 'failed',
+      message: '正文写入失败，编辑器没有接受内容（可能是只读或需要先点一下编辑区）',
+      url: location.href,
+      missing: [...missing, 'editor-write'],
+      finalUrl: location.href,
+    }
   }
 
-  // ── 3. 图片 ──
+  // ── 4. 图片 ──
   let imageCount = 0
   const fileInput = document.querySelector<HTMLInputElement>('input[type="file"][accept*="image"]')
   if (fileInput && payload.images.length > 0) {
@@ -230,22 +437,52 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
       stage: 'filled',
       message: '该平台要求至少一张图片，正文已填入但图片未上传成功，请手动补充后发布',
       url: location.href,
+      finalUrl: location.href,
     }
   }
 
+  // ── 5. 草稿模式：点平台自己的「存草稿」 ──
   if (!payload.autoPublish) {
-    return { ok: true, stage: 'filled', message: '已填入编辑器（草稿模式，未点击发布）', url: location.href }
+    if (payload.draftTexts.length > 0) {
+      const clicked = await clickByTexts(payload.draftTexts, { allowDraft: true, timeoutMs: 4000 })
+      if (clicked) {
+        await sleep(2500)
+        return {
+          ok: true,
+          stage: 'drafted',
+          message: '已点击平台自己的「存草稿」，内容已进入草稿箱',
+          url: location.href,
+          finalUrl: location.href,
+        }
+      }
+    }
+    return {
+      ok: true,
+      stage: 'filled',
+      message: '内容已填入编辑器（草稿模式，未点发布）',
+      url: location.href,
+      finalUrl: location.href,
+    }
   }
 
-  // ── 4. 发布 ──
+  // ── 6. 发布前整理（小红书长文：一键排版 → 下一步）──
+  for (const step of payload.prepareSteps) {
+    const clicked = await clickByTexts(step, { timeoutMs: 4000 })
+    if (!clicked) missing.push(`prepare:${step[0]}`)
+    await sleep(1500)
+  }
+
+  // ── 7. 发布 ──
   const beforeUrl = location.href
-  const publishBtn = findButton(payload.publishTexts)
+  const publishBtn = findClickable(payload.publishTexts)
   if (!publishBtn) {
     return {
       ok: true,
       stage: 'filled',
-      message: '内容已填入编辑器，但未找到发布按钮，请手动点击发布',
+      message: '内容已填入编辑器，但没找到发布按钮，请手动点发布',
       url: location.href,
+      missing: [...missing, 'publish'],
+      finalUrl: location.href,
     }
   }
 
@@ -253,13 +490,16 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
   await sleep(4000)
 
   // 发布后可能出现二次确认弹窗（选择封面、确认发布等），再点一次
-  const confirmBtn = findButton(['确定', '确认发布', '继续发布'])
+  const confirmTexts = payload.confirmTexts.length
+    ? payload.confirmTexts
+    : ['确认发布', '确定', '继续发布']
+  const confirmBtn = findClickable(confirmTexts)
   if (confirmBtn && isUsable(confirmBtn)) {
     confirmBtn.click()
     await sleep(3000)
   }
 
-  const successText = /发布成功|已发布|提交成功|审核中/.test(document.body.innerText || '')
+  const successText = /发布成功|已发布|提交成功|审核中|发表成功/.test(document.body.innerText || '')
   const urlChanged = location.href !== beforeUrl
 
   if (successText || urlChanged) {
@@ -268,6 +508,7 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
       stage: 'published',
       message: '已点击发布并检测到成功反馈',
       url: location.href,
+      finalUrl: location.href,
     }
   }
 
@@ -276,6 +517,7 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     stage: 'submitted',
     message: '已点击发布，但页面未给出明确成功提示，请到平台确认',
     url: location.href,
+    finalUrl: location.href,
   }
 }
 
@@ -292,7 +534,7 @@ export abstract class PagePublishAdapter extends CodeAdapter {
   /**
    * 是否需要登录态
    *
-   * 投稿型平台（IT之家、InfoQ、快懂百科）本身就是公开表单，
+   * 投稿型平台（IT之家、InfoQ）本身就是公开表单，
    * 没登录也能打开，不应因为查不到 Cookie 就判成「未登录」。
    */
   protected readonly requiresAuth: boolean = true
@@ -363,6 +605,8 @@ export abstract class PagePublishAdapter extends CodeAdapter {
       titleSelectors: this.pageConfig.titleSelectors,
       editorSelectors: this.pageConfig.editorSelectors,
       publishTexts: this.pageConfig.publishTexts,
+      manualOnly: this.pageConfig.manualOnly,
+      entrySteps: this.pageConfig.entrySteps,
     }
   }
 
@@ -380,6 +624,17 @@ export abstract class PagePublishAdapter extends CodeAdapter {
 
     try {
       const tabId = await this.ensureEditorTab()
+
+      // 纯人工平台：不注入内容，只把页面打开并说清楚要做什么
+      if (this.pageConfig.manualOnly) {
+        return this.createResult(true, {
+          postUrl: draftUrl,
+          draftOnly: true,
+          reviewStatus: 'unknown',
+          message: this.manualMessage(),
+        })
+      }
+
       const html = article.html || article.markdown || ''
       const images = this.extractImages(html, article.cover)
 
@@ -393,10 +648,23 @@ export abstract class PagePublishAdapter extends CodeAdapter {
           titleSelectors: this.pageConfig.titleSelectors,
           editorSelectors: this.pageConfig.editorSelectors,
           publishTexts: this.pageConfig.publishTexts,
+          draftTexts: this.pageConfig.draftTexts ?? [],
+          confirmTexts: this.pageConfig.confirmTexts ?? [],
+          entrySteps: this.pageConfig.entrySteps ?? [],
+          prepareSteps: this.pageConfig.prepareSteps ?? [],
           requireImages: this.pageConfig.requireImages ?? false,
           autoPublish,
+          waitMs: this.pageConfig.waitMs ?? 12000,
         },
       ])
+
+      // 被踢到登录页：这不是「页面改版」，用户需要知道该去登录
+      if (result?.stage === 'needs_login') {
+        return this.createResult(false, {
+          error: result.message || `需要先登录${this.meta.name}，再重新同步`,
+          postUrl: result.finalUrl || draftUrl,
+        })
+      }
 
       if (!result || result.stage === 'failed') {
         // 投稿型平台没有统一表单，填不进去属于预期：降级为「已打开投稿页」
@@ -428,12 +696,19 @@ export abstract class PagePublishAdapter extends CodeAdapter {
       }
 
       const published = result.stage === 'published'
+      const message =
+        result.message ||
+        (published
+          ? '已发布'
+          : result.stage === 'drafted'
+            ? '内容已存入平台草稿箱'
+            : '内容已填入编辑器，请到平台确认或手动发布')
       return this.createResult(true, {
         postUrl: result.url || draftUrl,
         draftOnly: !published,
         reviewStatus: published ? 'reviewing' : 'unknown',
-        reviewStatusText: result.message,
-        message: result.message,
+        reviewStatusText: message,
+        message,
       })
     } catch (error) {
       logger.error('Page publish failed:', error)
@@ -444,8 +719,16 @@ export abstract class PagePublishAdapter extends CodeAdapter {
     }
   }
 
+  /** 纯人工平台的提示文案（子类可覆盖） */
+  protected manualMessage(): string {
+    return `已打开${this.meta.name}入口页。该平台没有文章编辑器，需要人工填写后提交`
+  }
+
   /**
    * 找到（或打开）编辑器 tab
+   *
+   * 复用已经打开的编辑器标签页，避免每次同步都堆一个新标签页。
+   * 复用时旧内容不会被保留 —— 注入脚本会先全选再插入，相当于整篇覆盖。
    */
   private async ensureEditorTab(): Promise<number> {
     const tabs = this.runtime.tabs!
@@ -462,7 +745,7 @@ export abstract class PagePublishAdapter extends CodeAdapter {
     const created = await tabs.create(this.pageConfig.editorUrl, false)
     await tabs.waitForLoad(created.id)
     // 编辑器是 SPA，等它把表单渲染出来；重编辑器额外多等一会儿
-    await this.delay(2500 + (this.pageConfig.extraWaitMs ?? 0))
+    await this.delay(2000 + (this.pageConfig.extraWaitMs ?? 0))
     return created.id
   }
 

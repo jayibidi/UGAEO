@@ -17,4 +17,4 @@ export * from './lib'
 export * from './endpoints'
 
 // Version
-export const VERSION = '2.5.0'
+export const VERSION = '2.6.1'

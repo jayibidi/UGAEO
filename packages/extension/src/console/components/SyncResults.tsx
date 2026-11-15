@@ -75,6 +75,7 @@ export function SyncResults({
               )}
 
               <PlatformIcon
+                platformId={result.platform}
                 icon={iconOf(result.platform)}
                 name={result.platformName || nameOf(result.platform)}
                 size={14}

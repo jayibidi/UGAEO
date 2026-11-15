@@ -57,7 +57,7 @@ export const PLATFORM_PROFILES: Record<string, PlatformProfile> = {
   yuque: { kind: 'graphic', order: 100 },
   douban: { kind: 'graphic', order: 100 },
   weixin: { kind: 'graphic', order: 100 },
-  xiaohongshu: { kind: 'graphic', order: 100 },
+  xiaohongshu: { kind: 'graphic', order: 100, note: '当前只接「写长文」形态；上传图文 / 视频 / 播客未接入' },
   bilibili: { kind: 'graphic', order: 100 },
   weibo: { kind: 'news', order: 100 },
   baijiahao: { kind: 'news', order: 100 },
@@ -141,4 +141,17 @@ export function countByContentKind(platforms: Array<{ id: string }>): Record<Con
     },
     { graphic: 0, news: 0 } as Record<ContentKind, number>
   )
+}
+
+/**
+ * 「不是平台」的本地工具
+ *
+ * zip-download 只是把文章打包成 Markdown 下载，没有账号、没有编辑器。
+ * 界面统计平台数、登录率、自检表格时都要把它排除，否则用户会以为
+ * 自己「已登录 35 个平台」，其中一个是根本不存在的平台。
+ */
+export const LOCAL_TOOL_PLATFORM_IDS = ['zip-download'] as const
+
+export function isLocalToolPlatform(platformId: string): boolean {
+  return (LOCAL_TOOL_PLATFORM_IDS as readonly string[]).includes(platformId)
 }

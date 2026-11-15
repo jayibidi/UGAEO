@@ -97,7 +97,7 @@ export function HistoryPage() {
                           const meta = platformMeta(result.platform)
                           return (
                             <div key={result.platform} className="flex items-start gap-2 py-2 text-sm">
-                              <PlatformIcon icon={meta?.icon} name={result.platformName || result.platform} size={16} />
+                              <PlatformIcon platformId={result.platform} icon={meta?.icon} name={result.platformName || result.platform} size={16} />
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="truncate">{result.platformName || meta?.name || result.platform}</span>

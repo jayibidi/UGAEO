@@ -4,6 +4,7 @@ import { ArrowLeft, Globe, Loader2 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { useCMSStore, type CMSType } from '../stores/cms'
 import { trackPageView, trackPlatformExpansion } from '../../lib/analytics'
+import { PlatformIcon } from '../../components/platform-icon'
 
 interface CMSOption {
   id: CMSType
@@ -146,14 +147,7 @@ export function AddCMSPage() {
                   onClick={() => handleSelectCMS(cms.id)}
                   className="w-full flex items-center gap-3 p-3 rounded-lg border hover:border-primary transition-colors text-left"
                 >
-                  <img
-                    src={cms.icon}
-                    alt={cms.name}
-                    className="w-8 h-8 rounded"
-                    onError={e => {
-                      (e.target as HTMLImageElement).src = '/assets/icon-48.png'
-                    }}
-                  />
+                  <PlatformIcon icon={cms.icon} name={cms.name} size={32} />
                   <div className="flex-1">
                     <div className="font-medium text-sm">{cms.name}</div>
                     <div className="text-xs text-muted-foreground">
@@ -185,14 +179,7 @@ export function AddCMSPage() {
                     className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-muted transition-colors"
                     title={`前往 ${platform.name} 登录`}
                   >
-                    <img
-                      src={platform.icon}
-                      alt={platform.name}
-                      className="w-6 h-6 rounded"
-                      onError={e => {
-                        (e.target as HTMLImageElement).src = '/assets/icon-48.png'
-                      }}
-                    />
+                    <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={24} />
                     <span className="text-[10px] text-muted-foreground truncate w-full text-center">
                       {platform.name}
                     </span>

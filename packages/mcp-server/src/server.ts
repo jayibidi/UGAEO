@@ -29,7 +29,7 @@ export class SyncAssistantMcpServer {
     this.server = new Server(
       {
         name: 'sync-assistant',
-        version: '2.5.0',
+        version: '2.6.1',
       },
       {
         capabilities: {
@@ -81,7 +81,7 @@ export class SyncAssistantMcpServer {
     this.app.get('/', (_req: Request, res: Response) => {
       res.json({
         name: 'Sync Assistant MCP Server',
-        version: '2.5.0',
+        version: '2.6.1',
         endpoints: {
           sse: '/sse',
           health: '/health',

@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FileText, Link2, PencilLine, RefreshCw } from 'lucide-react'
+import { FilePlus2, FileText, Link2, PencilLine, RefreshCw } from 'lucide-react'
 import { useConsoleStore } from '../lib/store'
 import { PlatformPicker } from '../components/PlatformPicker'
 import { PublishSettings } from '../components/PublishSettings'
 import { EditArticleModal } from '../components/EditArticleModal'
 import { formatRelative, wordCount } from '../lib/format'
+import type { Article } from '../lib/types'
 
 export function SyncPage() {
   const {
@@ -18,19 +19,15 @@ export function SyncPage() {
     history,
   } = useConsoleStore()
 
-  const [editing, setEditing] = useState(false)
-  const [manualOpen, setManualOpen] = useState(false)
-  const [manualTitle, setManualTitle] = useState('')
-  const [manualBody, setManualBody] = useState('')
+  // 编辑弹窗：seed 为 null 表示「手动新建」，否则是在改当前这篇
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorSeed, setEditorSeed] = useState<Article | null>(null)
 
   const publishingDrafts = publishMode === 'publish' && draftRefs.length > 0
 
-  const saveManual = () => {
-    if (!manualTitle.trim() || !manualBody.trim()) return
-    setArticle({ title: manualTitle.trim(), markdown: manualBody })
-    setManualTitle('')
-    setManualBody('')
-    setManualOpen(false)
+  const openEditor = (seed: Article | null) => {
+    setEditorSeed(seed)
+    setEditorOpen(true)
   }
 
   return (
@@ -40,43 +37,18 @@ export function SyncPage() {
         <section className="uga-card p-5">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-medium">待同步文章</h2>
-            <div className="flex gap-1">
-              <button className="uga-btn-ghost px-2 py-1 text-xs" onClick={() => extractFromActiveTab()}>
+            <div className="flex gap-1.5">
+              <button
+                className="uga-btn-secondary px-2.5 py-1 text-xs"
+                onClick={() => extractFromActiveTab()}
+              >
                 <RefreshCw className="h-3.5 w-3.5" /> 从当前页面提取
               </button>
-              <button
-                className="uga-btn-ghost px-2 py-1 text-xs"
-                onClick={() => setManualOpen(open => !open)}
-              >
-                <FileText className="h-3.5 w-3.5" /> 手动新建
+              <button className="uga-btn-secondary px-2.5 py-1 text-xs" onClick={() => openEditor(null)}>
+                <FilePlus2 className="h-3.5 w-3.5" /> 手动新建
               </button>
             </div>
           </div>
-
-          {manualOpen && (
-            <div className="mb-4 space-y-2 rounded-lg border border-dashed p-3">
-              <input
-                className="uga-input"
-                placeholder="文章标题"
-                value={manualTitle}
-                onChange={e => setManualTitle(e.target.value)}
-              />
-              <textarea
-                className="uga-input h-40 resize-y font-mono text-[12px]"
-                placeholder="正文（Markdown）"
-                value={manualBody}
-                onChange={e => setManualBody(e.target.value)}
-              />
-              <div className="flex justify-end gap-2">
-                <button className="uga-btn-secondary" onClick={() => setManualOpen(false)}>
-                  取消
-                </button>
-                <button className="uga-btn-primary" onClick={saveManual} disabled={!manualTitle.trim() || !manualBody.trim()}>
-                  使用这篇
-                </button>
-              </div>
-            </div>
-          )}
 
           {article ? (
             <div className="flex gap-4">
@@ -88,7 +60,7 @@ export function SyncPage() {
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <h3 className="line-clamp-2 text-sm font-medium">{article.title}</h3>
+                <h3 className="line-clamp-2 text-sm font-medium">{article.title || '（未命名草稿）'}</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {wordCount(article)} 字
                   {article.tags?.length ? ` · ${article.tags.join(' / ')}` : ''}
@@ -105,8 +77,11 @@ export function SyncPage() {
                   </a>
                 )}
                 <div className="mt-2 flex gap-1">
-                  <button className="uga-btn-secondary px-2 py-1 text-xs" onClick={() => setEditing(true)}>
-                    <PencilLine className="h-3.5 w-3.5" /> 编辑后发布
+                  <button
+                    className="uga-btn-secondary px-2 py-1 text-xs"
+                    onClick={() => openEditor(article)}
+                  >
+                    <PencilLine className="h-3.5 w-3.5" /> 编辑
                   </button>
                   <button className="uga-btn-ghost px-2 py-1 text-xs" onClick={() => setArticle(null)}>
                     清空
@@ -118,7 +93,7 @@ export function SyncPage() {
             <div className="rounded-lg border border-dashed px-4 py-10 text-center">
               <p className="text-sm text-muted-foreground">还没有待同步文章</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                打开任意文章页点上面的「从当前页面提取」，或手动粘贴正文
+                打开任意文章页点「从当前页面提取」、在页面上右键选「同步助手 - 提取与编辑文章」，或点「手动新建」
               </p>
             </div>
           )}
@@ -167,12 +142,14 @@ export function SyncPage() {
       </div>
 
       <EditArticleModal
-        open={editing}
-        onClose={() => setEditing(false)}
-        initialArticle={article}
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        initialArticle={editorSeed}
         defaultPlatforms={selectedPlatforms}
         defaultMode={publishMode}
-        heading="编辑文章并发布"
+        purpose="save"
+        heading={editorSeed ? '编辑文章' : '手动新建文章'}
+        onSave={next => setArticle(next)}
       />
     </div>
   )

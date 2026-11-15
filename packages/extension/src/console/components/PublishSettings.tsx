@@ -13,6 +13,7 @@ import { useConsoleStore } from '../lib/store'
 import { PlatformIcon } from './PlatformBadge'
 import { SyncResults } from './SyncResults'
 import {
+  countUnauthenticated,
   draftPublishMode,
   isPublishable,
   isScheduleValid,
@@ -58,6 +59,8 @@ export function PublishSettings() {
     [platforms]
   )
   const selectedPublishable = selectedPlatforms.filter(id => publishable.some(p => p.id === id))
+  // 草稿模式下列表是全量平台，选中里可能夹着未登录的，同步前提示一句
+  const unauthedSelected = countUnauthenticated(platforms, selectedPlatforms)
 
   const autoDrafts = draftRefs.filter(ref => draftPublishMode(ref, platforms) === 'auto')
   const manualDrafts = draftRefs.filter(ref => draftPublishMode(ref, platforms) === 'manual')
@@ -117,6 +120,12 @@ export function PublishSettings() {
             <span>已选 {selectedPlatforms.length} 个平台</span>
             <span className="text-muted-foreground">全部存草稿</span>
           </div>
+
+          {unauthedSelected > 0 && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              其中 {unauthedSelected} 个平台还没登录，会同步失败；先去「账号」页登录，或把它们取消掉。
+            </p>
+          )}
 
           <button
             className="uga-btn-primary w-full"
@@ -185,7 +194,12 @@ export function PublishSettings() {
                         >
                           {checked && <Check className="h-3 w-3" />}
                         </span>
-                        <PlatformIcon icon={platforms.find(p => p.id === ref.platform)?.icon} name={ref.platformName || ref.platform} size={14} />
+                        <PlatformIcon
+                          platformId={ref.platform}
+                          icon={platforms.find(p => p.id === ref.platform)?.icon}
+                          name={ref.platformName || ref.platform}
+                          size={14}
+                        />
                         <span className="min-w-0 flex-1 truncate">{ref.platformName || ref.platform}</span>
                         {auto ? (
                           <span className="uga-chip border border-primary/30 text-primary">可自动发布</span>

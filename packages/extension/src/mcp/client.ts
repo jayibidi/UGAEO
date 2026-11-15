@@ -9,6 +9,7 @@ import {
 import { markdownToHtml } from '@ugaeo/core'
 import { createLogger } from '../lib/logger'
 import { performSync } from '../background/sync-service'
+import { shouldStopRetrying } from './retry-policy'
 
 const logger = createLogger('MCPClient')
 
@@ -53,6 +54,14 @@ class McpClient {
   private reconnectAttempts = 0
   private lastConnectedAt = 0 // 上次成功连接的时间戳
   private activelyWatched = false // 用户正在查看设置页
+  /**
+   * 从没连上过时的失败次数
+   *
+   * 没跑本地 MCP 服务的普通用户，每次 WebSocket 连接失败都会被 Chrome 记进
+   * chrome://extensions 的「错误」里；只试一两次就静默停手，别一直刷。
+   */
+  private coldFailures = 0
+  private readonly maxColdFailures = 2
   private readonly WARM_WINDOW = 5 * 60 * 1000 // 5 分钟内视为温热
   // 温热阶段：刚断开，快速重连
   private readonly warmMinInterval = 500   // 500ms
@@ -126,7 +135,10 @@ class McpClient {
       this.ws.onopen = () => {
         logger.debug('Connected to MCP Server')
         this.reconnectAttempts = 0 // 重置重连计数
+        this.coldFailures = 0
         this.lastConnectedAt = Date.now() // 记录连接时间
+        // 记住「这台机器确实连上过」，下次浏览器启动才自动连；否则启动时保持安静
+        chrome.storage?.local?.set({ mcpEverConnected: true }).catch(() => {})
         if (this.reconnectTimer) {
           clearTimeout(this.reconnectTimer)
           this.reconnectTimer = null
@@ -140,6 +152,7 @@ class McpClient {
       this.ws.onclose = (event) => {
         logger.debug(`Disconnected (code: ${event.code}), scheduling reconnect...`)
         this.ws = null
+        if (this.lastConnectedAt === 0) this.coldFailures++
         this.scheduleReconnect()
       }
 
@@ -185,6 +198,16 @@ class McpClient {
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       logger.debug('Max reconnect attempts reached, stopping')
+      return
+    }
+
+    // 本地服务根本不存在时，别无限重试：每次失败都会在扩展错误面板留一条记录
+    if (shouldStopRetrying({
+      lastConnectedAt: this.lastConnectedAt,
+      coldFailures: this.coldFailures,
+      maxColdFailures: this.maxColdFailures,
+    })) {
+      logger.debug('MCP server unreachable, stopped retrying until user opens settings')
       return
     }
 
@@ -239,6 +262,7 @@ class McpClient {
     // 开始关注时，如果未连接，立即尝试重连
     if (active && !this.isConnected()) {
       this.reconnectAttempts = 0
+      this.coldFailures = 0
       if (this.reconnectTimer) {
         clearTimeout(this.reconnectTimer)
         this.reconnectTimer = null
@@ -252,6 +276,7 @@ class McpClient {
    */
   resetReconnect(): void {
     this.reconnectAttempts = 0
+    this.coldFailures = 0
     if (!this.isConnected()) {
       this.connect()
     }

@@ -305,7 +305,10 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
           }
           return { ...meta, isAuthenticated: false, error: 'Adapter not found' }
         } catch (error) {
-          logger.error(`${meta.id} auth error:`, error)
+          // 认证检查失败（未登录 / 超时）是常态，不是程序故障。
+          // 这里用 warn：console.error 会被 Chrome 记成扩展错误，用户会在
+          // chrome://extensions 看到一个吓人的「错误」按钮。
+          logger.warn(`${meta.id} auth check failed:`, (error as Error).message)
 
           // 缓存错误状态
           cache[meta.id] = {

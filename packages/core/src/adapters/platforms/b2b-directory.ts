@@ -24,12 +24,20 @@ const LEGACY_EDITORS = [
   'textarea',
 ]
 
+/**
+ * 标题候选
+ *
+ * 注意这里**不能**放 `input[type="text"]`：黄页类后台的登录页/首页都有站内搜索框，
+ * 兜底选择器会把文章标题打进搜索框，体检还显示「标题✓」——看着成功，实际什么都没提交。
+ * 真找不到宁可在自检里报红，也不要假装填上了。
+ */
 const LEGACY_TITLES = [
   'input[placeholder*="标题"]',
   'input[name="title"]',
   'input[id*="title"]',
   'textarea[name="title"]',
-  'input[type="text"]',
+  'input[name="subject"]',
+  'input[name="art_title"]',
 ]
 
 /**

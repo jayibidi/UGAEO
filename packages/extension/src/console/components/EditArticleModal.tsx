@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { Loader2, Send, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CheckSquare, Loader2, Save, Send, Square, X } from 'lucide-react'
 import { useConsoleStore } from '../lib/store'
 import { contentKind } from '../lib/format'
 import { PlatformIcon, ResultPill } from './PlatformBadge'
+import { MarkdownEditor } from './MarkdownEditor'
+import { splitPlatformsByMode, countUnauthenticated } from '../lib/publish-flow'
 import type { Article, SyncResult } from '../lib/types'
 
 interface Props {
@@ -16,10 +18,22 @@ interface Props {
   defaultPlatforms: string[]
   defaultMode?: 'draft' | 'publish'
   heading?: string
+  /**
+   * save：只编辑并保存，不校验必填、不发布（同步页用）
+   * publish：改完直接重发（失败处理页用）
+   */
+  purpose?: 'save' | 'publish'
+  onSave?: (article: Article) => void
 }
 
 /**
- * 返回编辑：修改标题/摘要/标签/正文后重新发布到指定平台
+ * 文章编辑器
+ *
+ * 两种用途共用一套界面：
+ * - 同步页「手动新建 / 编辑」→ 只保存，内容可以只写一半，随时 Ctrl+S；
+ * - 失败处理「返回编辑」→ 保存并重发到指定平台。
+ *
+ * 平台列表跟着发布方式走：立即发布只列能自动发布的平台，存为草稿列全部已登录平台。
  */
 export function EditArticleModal({
   open,
@@ -28,9 +42,11 @@ export function EditArticleModal({
   initialArticle,
   defaultPlatforms,
   defaultMode = 'publish',
-  heading = '返回编辑并重新发布',
+  heading,
+  purpose = 'publish',
+  onSave,
 }: Props) {
-  const { platforms, loadSnapshot, runSync } = useConsoleStore()
+  const { platforms, loadSnapshot, runSync, setNotice } = useConsoleStore()
 
   const [loading, setLoading] = useState(false)
   const [snapshotMissing, setSnapshotMissing] = useState(false)
@@ -68,7 +84,8 @@ export function EditArticleModal({
       setTags((article?.tags || []).join(', '))
       setCover(article?.cover)
       setSourceUrl(article?.source?.url)
-      setFormat(contentKind(article || {}))
+      // 新建空白文章时默认 Markdown（写作场景更常用），有内容则按内容实际形态
+      setFormat(article ? contentKind(article) : 'markdown')
       setBody(article?.markdown || article?.html || article?.content || '')
       setSnapshotMissing(!(article?.markdown || article?.html || article?.content))
     }
@@ -92,25 +109,63 @@ export function EditArticleModal({
     return () => { cancelled = true }
   }, [open, syncId, loadSnapshot])
 
-  if (!open) return null
+  const { selectable, locked } = useMemo(() => splitPlatformsByMode(platforms, mode), [platforms, mode])
+  const selectableKey = selectable.map(platform => platform.id).join(',')
+  const unauthedSelected = countUnauthenticated(platforms, targets)
 
-  const authed = platforms.filter(p => p.isAuthenticated)
+  // 切换发布方式后，把已经不符合条件的平台从选中里去掉
+  useEffect(() => {
+    if (!open) return
+    const allowed = new Set(selectableKey ? selectableKey.split(',') : [])
+    setTargets(prev => {
+      const next = prev.filter(id => allowed.has(id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [open, selectableKey])
 
-  const submit = async () => {
-    if (!title.trim() || !body.trim() || !targets.length) return
+  const allSelected = selectable.length > 0 && selectable.every(platform => targets.includes(platform.id))
 
-    // 只保留当前格式的正文，避免旧字段覆盖新内容
-    const article: Article = {
-      title: title.trim(),
+  const buildArticle = (): Article => {
+    const trimmedTitle = title.trim()
+    const tagsArray = tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean)
+    return {
+      title: trimmedTitle,
       summary: summary.trim() || undefined,
-      tags: tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean),
+      tags: tagsArray.length ? tagsArray : undefined,
       cover,
       source: sourceUrl ? { url: sourceUrl } : undefined,
+      // 只留当前格式的正文，避免旧字段盖掉新内容
       ...(format === 'markdown'
         ? { markdown: body, content: undefined, html: undefined }
         : { html: body, content: body, markdown: undefined }),
     }
+  }
 
+  const handleSave = () => {
+    const article = buildArticle()
+    onSave?.(article)
+    setNotice({ kind: 'ok', text: article.title ? `已保存《${article.title}》` : '已保存草稿内容' })
+    onClose()
+  }
+
+  useEffect(() => {
+    if (!open || purpose !== 'save') return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
+  if (!open) return null
+
+  const submit = async () => {
+    if (!title.trim() || !body.trim() || !targets.length) return
+
+    const article = buildArticle()
     setRunning(true)
     setResults(null)
     const synced = await runSync(article, targets, { mode })
@@ -122,14 +177,19 @@ export function EditArticleModal({
     setTargets(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
   }
 
+  const isSaveMode = purpose === 'save'
+  const titleText = heading || (isSaveMode ? '编辑文章' : '返回编辑并重新发布')
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6 backdrop-blur-sm">
       <div className="my-6 w-full max-w-3xl rounded-xl border bg-card shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold">{heading}</h2>
+            <h2 className="text-base font-semibold">{titleText}</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              修改后可直接重发到指定平台，失败的原文会保留在同步记录里。
+              {isSaveMode
+                ? '内容可以先写一半，随时保存；发布方式与平台可以之后再选。'
+                : '修改后可直接重发到指定平台，失败的原文会保留在同步记录里。'}
             </p>
           </div>
           <button className="uga-btn-ghost p-1" onClick={onClose}>
@@ -144,7 +204,7 @@ export function EditArticleModal({
             </div>
           ) : (
             <>
-              {snapshotMissing && (
+              {snapshotMissing && !isSaveMode && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
                   没有找到这篇的正文快照（旧版本记录或快照已被淘汰）。可以把正文粘贴到下面再重发。
                 </div>
@@ -152,7 +212,12 @@ export function EditArticleModal({
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">标题</label>
-                <input className="uga-input" value={title} onChange={e => setTitle(e.target.value)} />
+                <input
+                  className="uga-input"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  placeholder="先写个标题，之后再改也行"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -167,50 +232,90 @@ export function EditArticleModal({
               </div>
 
               <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    正文 · {body.replace(/<[^>]+>/g, '').length} 字符
-                  </label>
-                  <div className="flex gap-1 rounded-lg bg-muted p-0.5 text-xs">
-                    {(['markdown', 'html'] as const).map(item => (
-                      <button
-                        key={item}
-                        onClick={() => setFormat(item)}
-                        className={`rounded-md px-2 py-0.5 ${format === item ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground'}`}
-                      >
-                        {item === 'markdown' ? 'Markdown' : 'HTML'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <textarea
-                  className="uga-input h-72 resize-y font-mono text-[12px] leading-relaxed"
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">正文</label>
+                <MarkdownEditor
                   value={body}
-                  onChange={e => setBody(e.target.value)}
-                  placeholder={format === 'markdown' ? '# 正文标题\n\n支持 Markdown' : '<h2>正文</h2>'}
+                  onChange={setBody}
+                  format={format}
+                  onFormatChange={setFormat}
+                  heightClass="h-80"
+                  placeholder={
+                    format === 'markdown'
+                      ? '# 从这里开始写\n\n支持 Markdown，工具栏按钮即可插入格式，图片可以直接粘贴进来。'
+                      : '<h2>正文</h2>\n<p>支持 HTML，图片可以直接粘贴进来。</p>'
+                  }
+                  onImageError={message => setNotice({ kind: 'error', text: `图片处理失败：${message}` })}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">目标平台</label>
-                  <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
-                    {authed.map(platform => (
-                      <label
-                        key={platform.id}
-                        className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted/60"
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      目标平台
+                      <span className="ml-1 font-normal">
+                        {mode === 'publish' ? '（可自动发布）' : '（全部平台）'} {selectable.length} 个
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="uga-btn-ghost px-1.5 py-0.5 text-[11px]"
+                        onClick={() => setTargets(selectable.map(platform => platform.id))}
+                        disabled={!selectable.length}
                       >
-                        <input
-                          type="checkbox"
-                          checked={targets.includes(platform.id)}
-                          onChange={() => toggleTarget(platform.id)}
-                          className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
-                        />
-                        <PlatformIcon icon={platform.icon} name={platform.name} size={16} />
-                        <span className="truncate">{platform.name}</span>
-                      </label>
-                    ))}
+                        全选
+                      </button>
+                      <button
+                        type="button"
+                        className="uga-btn-ghost px-1.5 py-0.5 text-[11px]"
+                        onClick={() => {
+                          setTargets([])
+                          setNotice({ kind: 'info', text: '已清空目标平台' })
+                        }}
+                        disabled={!targets.length}
+                      >
+                        清空
+                      </button>
+                    </div>
                   </div>
+
+                  <div className="max-h-48 space-y-0.5 overflow-y-auto rounded-lg border p-1">
+                    {selectable.length === 0 && (
+                      <p className="px-2 py-6 text-center text-[11px] leading-relaxed text-muted-foreground">
+                        {mode === 'publish'
+                          ? '还没有支持自动发布的已登录平台，可以先存着，或切到「存为草稿」。'
+                          : '没有读取到平台列表，请打开扩展弹窗刷新一次。'}
+                      </p>
+                    )}
+                    {selectable.map(platform => {
+                      const checked = targets.includes(platform.id)
+                      return (
+                        <label
+                          key={platform.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted/60"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleTarget(platform.id)}
+                            className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
+                          />
+                          <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={16} />
+                          <span className="truncate">{platform.name}</span>
+                          {!platform.isAuthenticated && (
+                            <span className="ml-auto flex-shrink-0 text-[10px] text-muted-foreground">未登录</span>
+                          )}
+                        </label>
+                      )
+                    })}
+                  </div>
+
+                  {mode === 'publish' && locked.length > 0 && (
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      另有 {locked.length} 个平台只能存草稿，切到「存为草稿」可选。
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -226,8 +331,26 @@ export function EditArticleModal({
                       </button>
                     ))}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      allSelected ? setTargets([]) : setTargets(selectable.map(platform => platform.id))
+                    }
+                    disabled={!selectable.length}
+                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
+                  >
+                    {allSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                    {allSelected ? '取消全选' : '全选当前列表'}
+                  </button>
+
                   <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                    没有直发能力的平台会自动降级为草稿；已选 {targets.length} 个目标。
+                    {mode === 'publish'
+                      ? '只列出「已登录 + 支持自动发布」的平台；其余平台切到「存为草稿」再选。'
+                      : '全部平台都能收草稿；标「未登录」的同步前要先登录，发布仍需到平台后台点一下。'}
+                    <br />
+                    已选 {targets.length} 个目标
+                    {unauthedSelected > 0 ? ` · 其中 ${unauthedSelected} 个未登录` : ''}。
                   </p>
                 </div>
               </div>
@@ -272,20 +395,29 @@ export function EditArticleModal({
 
         <footer className="flex items-center justify-between gap-3 border-t px-5 py-3">
           <span className="text-xs text-muted-foreground">
-            已选 {targets.length} 个平台
+            {isSaveMode
+              ? `已选 ${targets.length} 个平台 · 不必填全也能保存`
+              : `已选 ${targets.length} 个平台`}
           </span>
           <div className="flex gap-2">
             <button className="uga-btn-secondary" onClick={onClose}>
-              {results ? '关闭' : '取消'}
+              {results && !isSaveMode ? '关闭' : '取消'}
             </button>
-            <button
-              className="uga-btn-primary"
-              onClick={submit}
-              disabled={running || loading || !title.trim() || !body.trim() || targets.length === 0}
-            >
-              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {running ? '发布中…' : '保存并重发'}
-            </button>
+            {isSaveMode ? (
+              <button className="uga-btn-primary" onClick={handleSave} disabled={loading}>
+                <Save className="h-4 w-4" />
+                保存
+              </button>
+            ) : (
+              <button
+                className="uga-btn-primary"
+                onClick={submit}
+                disabled={running || loading || !title.trim() || !body.trim() || targets.length === 0}
+              >
+                {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {running ? '发布中…' : '保存并重发'}
+              </button>
+            )}
           </div>
         </footer>
       </div>

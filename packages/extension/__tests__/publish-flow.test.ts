@@ -9,6 +9,7 @@ import {
   buildDraftOnlyMap,
   buildDraftRefs,
   canPublishExistingDraft,
+  countUnauthenticated,
   defaultScheduleValue,
   draftPublishMode,
   isPublishable,
@@ -48,16 +49,35 @@ describe('平台筛选', () => {
     expect(isPublishable(douban)).toBe(false)
   })
 
-  it('存为草稿模式：所有已登录平台都能选', () => {
+  it('存为草稿模式：全部平台都能选（未登录的也在列表里，只做标记）', () => {
     const { selectable, locked } = splitPlatformsByMode([zhihu, douban, offline], 'draft')
-    expect(selectable.map(p => p.id)).toEqual(['zhihu', 'douban'])
+    expect(selectable.map(p => p.id)).toEqual(['zhihu', 'douban', 'weibo'])
     expect(locked).toEqual([])
+  })
+
+  it('存为草稿模式：34 个平台一个不少，本地导出工具不算', () => {
+    // 立即发布 9 个 / 储草稿全量 34 个 是产品口径，这里锁死
+    const many = [
+      ...Array.from({ length: 9 }, (_, i) => platform({ id: `pub${i}`, capabilities: ['article', 'draft', 'publish'] })),
+      ...Array.from({ length: 25 }, (_, i) => platform({ id: `drf${i}`, capabilities: ['article', 'draft'] })),
+      platform({ id: 'zip-download', capabilities: ['article'] }),
+    ]
+
+    const draft = splitPlatformsByMode(many, 'draft')
+    expect(draft.selectable).toHaveLength(34)
+    const publish = splitPlatformsByMode(many, 'publish')
+    expect(publish.selectable).toHaveLength(9)
   })
 
   it('立即发布模式：仅草稿平台被锁住，未登录平台两边都不出现', () => {
     const { selectable, locked } = splitPlatformsByMode([zhihu, sohu, douban, offline], 'publish')
     expect(selectable.map(p => p.id)).toEqual(['zhihu', 'sohu'])
     expect(locked.map(p => p.id)).toEqual(['douban'])
+  })
+
+  it('未登录平台混在草稿目标里时能数出来，好提示先登录', () => {
+    expect(countUnauthenticated([zhihu, douban, offline], ['zhihu', 'weibo'])).toBe(1)
+    expect(countUnauthenticated([zhihu, douban, offline], ['zhihu'])).toBe(0)
   })
 })
 

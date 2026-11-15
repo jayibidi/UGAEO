@@ -13,6 +13,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { isLocalToolPlatform } from '@ugaeo/core'
 import { useConsoleStore } from '../lib/store'
 
 const NAV = [
@@ -91,10 +92,13 @@ function NoticeBar() {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  // CMS 站点没有「登录态」概念，比例只统计平台适配器
-  const platformCount = useConsoleStore(state => state.platforms.filter(p => p.sourceType !== 'cms').length)
+  // CMS 站点没有「登录态」概念；本地工具（Markdown 压缩包）也不是平台，都不进分母
+  const platformCount = useConsoleStore(
+    state => state.platforms.filter(p => p.sourceType !== 'cms' && !isLocalToolPlatform(p.id)).length
+  )
   const authedCount = useConsoleStore(
-    state => state.platforms.filter(p => p.sourceType !== 'cms' && p.isAuthenticated).length
+    state =>
+      state.platforms.filter(p => p.sourceType !== 'cms' && p.isAuthenticated && !isLocalToolPlatform(p.id)).length
   )
 
   return (

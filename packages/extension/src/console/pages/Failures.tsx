@@ -141,7 +141,7 @@ export function FailuresPage() {
             return (
               <div key={key} className="uga-card p-4">
                 <div className="flex items-start gap-3">
-                  <PlatformIcon icon={meta?.icon} name={item.platformName} size={20} />
+                  <PlatformIcon platformId={item.platform} icon={meta?.icon} name={item.platformName} size={20} />
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">

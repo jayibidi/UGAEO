@@ -4,6 +4,8 @@ import { ArrowLeft, Globe, Loader2, Plus, Trash2, Check, ChevronRight } from 'lu
 import { Button } from '../components/ui/Button'
 import { useCMSStore, type CMSType } from '../stores/cms'
 import { trackPageView, trackPlatformExpansion } from '../../lib/analytics'
+import { PlatformIcon } from '../../components/platform-icon'
+import { isLocalToolPlatform } from '@ugaeo/core'
 
 interface PlatformStatus {
   id: string
@@ -47,12 +49,7 @@ function PlatformRow({ platform, isLast }: { platform: PlatformStatus; isLast: b
         className="flex items-center gap-2.5 px-4 py-2.5 transition-colors cursor-pointer hover:bg-muted/50"
         onClick={() => platform.homepage && chrome.tabs.create({ url: platform.homepage })}
       >
-        <img
-          src={platform.icon}
-          alt={platform.name}
-          className="w-5 h-5 rounded flex-shrink-0"
-          onError={(e) => { (e.target as HTMLImageElement).src = '/assets/icon-48.png' }}
-        />
+        <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={20} />
         <span className="text-sm flex-1 truncate">{platform.name}</span>
         {platform.isAuthenticated ? (
           <span className="text-xs text-green-600 dark:text-green-400 truncate max-w-[80px] flex-shrink-0">
@@ -87,8 +84,8 @@ export function AccountsPage() {
 
   const mapPlatforms = (list: any[]): PlatformStatus[] =>
     list
-      // CMS 站点只在「自建站点」区展示，避免重复出现且删除后残留
-      .filter((p: any) => p.sourceType !== 'cms')
+      // CMS 站点只在「自建站点」区展示，避免重复出现且删除后残留；本地工具没有账号
+      .filter((p: any) => p.sourceType !== 'cms' && !isLocalToolPlatform(p.id))
       .map((p: any) => ({
         id: p.id, name: p.name, icon: p.icon,
         homepage: p.homepage, isAuthenticated: p.isAuthenticated,
@@ -212,7 +209,7 @@ export function AccountsPage() {
                 onClick={() => { setSelectedCMS(cms.id); setStep('add-cms-config') }}
                 className="w-full flex items-center gap-3 p-3 rounded-lg border hover:border-primary transition-colors text-left"
               >
-                <img src={cms.icon} alt={cms.name} className="w-8 h-8 rounded" onError={e => { (e.target as HTMLImageElement).src = '/assets/icon-48.png' }} />
+                <PlatformIcon icon={cms.icon} name={cms.name} size={32} />
                 <div className="flex-1">
                   <div className="font-medium text-sm">{cms.name}</div>
                   <div className="text-xs text-muted-foreground">{cms.description}</div>

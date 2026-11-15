@@ -4,6 +4,7 @@
  * 抽出来的原因：控制台两个页签（存为草稿 / 立即发布）的差别全在这些判断上，
  * 放在组件里既难测也容易被后人改回「两个页签长得一样」。
  */
+import { isLocalToolPlatform } from '@ugaeo/core'
 import type { DraftRef, Platform, SyncResult } from './types'
 
 /** 平台能否真正公开发布（适配器声明了 publish 能力） */
@@ -19,21 +20,32 @@ export function canPublishExistingDraft(platform: Platform): boolean {
 /**
  * 按模式切分平台
  *
- * - draft：所有已登录平台都能收草稿
- * - publish：只有声明了 publish 的平台可选，其余锁住并给出原因
+ * - draft：**全部平台**都能收草稿（34 个），未登录的先排进计划，登录后再同步；
+ *   草稿落库不依赖自动发布接口，所以不能像以前那样只列已登录平台
+ * - publish：只有「已登录 + 声明了 publish 能力」的平台可选，其余锁住并给出原因
+ *
+ * `zip-download` 是本地导出工具而不是平台，账号 / 概览 / 自检各处都排除它，这里同口径。
  */
 export function splitPlatformsByMode(
   platforms: Platform[],
   mode: 'draft' | 'publish'
 ): { selectable: Platform[]; locked: Platform[] } {
-  const authed = platforms.filter(platform => platform.isAuthenticated)
+  const usable = platforms.filter(platform => !isLocalToolPlatform(platform.id))
   if (mode === 'draft') {
-    return { selectable: authed, locked: [] }
+    return { selectable: usable, locked: [] }
   }
   return {
-    selectable: authed.filter(isPublishable),
-    locked: authed.filter(platform => !isPublishable(platform)),
+    selectable: usable.filter(platform => platform.isAuthenticated && isPublishable(platform)),
+    locked: usable.filter(platform => platform.isAuthenticated && !isPublishable(platform)),
   }
+}
+
+/** 目标里未登录的平台数（草稿模式下要提示「同步前先登录」） */
+export function countUnauthenticated(platforms: Platform[], ids: string[]): number {
+  const authed = new Set(
+    platforms.filter(platform => platform.isAuthenticated).map(platform => platform.id)
+  )
+  return ids.filter(id => !authed.has(id)).length
 }
 
 /**

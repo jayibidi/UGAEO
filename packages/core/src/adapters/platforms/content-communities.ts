@@ -91,6 +91,9 @@ export class SmzdmAdapter extends PagePublishAdapter {
  * 问答形态：没有「文章编辑器」，提问要选分类、回答要绑定问题 ID。
  * 强行自动发布容易灌出垃圾内容，因此只打开提问页并提示手动提交。
  * capabilities 不含 publish → 归入「仅草稿」那一层。
+ *
+ * manualOnly：不注入内容。以前它用 `input[type="text"]` 兜底，
+ * 结果把标题打进了百度知道的搜索框。
  */
 export class BaiduZhidaoAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -103,6 +106,7 @@ export class BaiduZhidaoAdapter extends PagePublishAdapter {
 
   protected readonly pageConfig: PagePublishConfig = {
     mode: 'submission',
+    manualOnly: true,
     editorUrlMatch: 'zhidao.baidu.com',
     editorUrl: 'https://zhidao.baidu.com/',
     titleSelectors: ['input[placeholder*="标题"]', 'textarea[placeholder*="标题"]'],
@@ -111,4 +115,8 @@ export class BaiduZhidaoAdapter extends PagePublishAdapter {
   }
 
   protected readonly sessionCookieNames = ['BDUSS', 'STOKEN']
+
+  protected manualMessage(): string {
+    return '百度知道是问答形态，没有文章编辑器：已打开提问页，需要人工选分类、写完问题后提交。扩展不会自动灌问答内容。'
+  }
 }

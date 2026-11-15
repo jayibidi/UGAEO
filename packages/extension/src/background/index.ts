@@ -27,6 +27,13 @@ import {
   trackGrowthMetrics,
 } from '../lib/analytics'
 import { checkSyncFrequency, recordSync } from '../lib/rate-limit'
+import { extractArticleFromTab, describeExtractFailure } from '../lib/tab-extractor'
+// 注意：这两个模块必须静态导入。
+// MV3 service worker 里没有 document，而 Vite 会把 `await import()` 包成
+// __vitePreload(...)，该 helper 内部会访问 document.head / querySelector 来预加载
+// CSS，结果一调用就抛 "document is not defined"（自检页整页空白就是这个原因）。
+import { diagnosePlatforms, probePlatform } from '../lib/diagnostics'
+import { publishDraftRefs } from './publish-drafts'
 import { getPublishSettings, resolveDraftOnlyMap } from '../lib/publish-settings'
 import { checkForUpdates, isUpdateDismissed } from '../lib/version-check'
 import { fetchRemoteConfig, fetchConfigIfNeeded } from '../lib/remote-config'
@@ -111,7 +118,7 @@ type MessageAction =
   | { type: 'SCHEDULE_CANCEL'; payload: { id: string } }
   | { type: 'SCHEDULE_LAST_RESULT' }
   | { type: 'DIAGNOSE_PLATFORMS' }
-  | { type: 'DIAGNOSE_PAGE'; payload: { platformId: string } }
+  | { type: 'DIAGNOSE_PAGE'; payload: { platformId: string; dryFill?: boolean; force?: boolean } }
 
 /**
  * 消息处理
@@ -133,14 +140,15 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     }
 
     case 'DIAGNOSE_PLATFORMS': {
-      const { diagnosePlatforms } = await import('../lib/diagnostics')
       const platforms = await diagnosePlatforms()
       return { platforms }
     }
 
     case 'DIAGNOSE_PAGE': {
-      const { probePlatform } = await import('../lib/diagnostics')
-      const result = await probePlatform(message.payload.platformId)
+      const result = await probePlatform(message.payload.platformId, {
+        dryFill: message.payload.dryFill,
+        force: message.payload.force,
+      })
       return { result }
     }
 
@@ -734,7 +742,6 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
         chrome.runtime.sendMessage(syncId ? { ...msg, syncId } : msg).catch(() => {})
       }
 
-      const { publishDraftRefs } = await import('./publish-drafts')
       const results = await publishDraftRefs(refs, {
         onResult: result => sendProgress({ type: 'SYNC_PROGRESS', payload: { result } }),
       })
@@ -764,11 +771,45 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
  * 创建右键菜单
  */
 function createContextMenu() {
-  chrome.contextMenus.create({
-    id: 'ugaeo-open-editor',
-    title: '同步助手 - 提取并编辑文章',
-    contexts: ['page', 'selection'],
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'ugaeo-open-editor',
+      title: '同步助手 - 提取与编辑文章',
+      contexts: ['page', 'selection'],
+    })
   })
+}
+
+/** 控制台同步页地址（右键提取后直接落到这里） */
+const CONSOLE_PAGE = 'src/console/index.html'
+const CONSOLE_SYNC_PAGE = 'src/console/index.html#/sync'
+
+/**
+ * 打开（或聚焦）控制台同步页
+ *
+ * 已经开着就复用那个标签页并 reload —— 不 reload 的话 store 是内存里旧状态，
+ * 读不到刚写进去的待同步文章，用户会以为「右键没反应」。
+ */
+async function focusConsoleSyncPage() {
+  const url = chrome.runtime.getURL(CONSOLE_SYNC_PAGE)
+  const consoleBase = chrome.runtime.getURL(CONSOLE_PAGE)
+
+  try {
+    const tabs = await chrome.tabs.query({})
+    const existing = tabs.find(tab => tab.id && (tab.url || '').startsWith(consoleBase))
+    if (existing?.id) {
+      await chrome.tabs.update(existing.id, { url, active: true })
+      // 控制台是 SPA，只改 hash 不会重新加载，store 读不到刚写入的待同步文章 → 手动刷一次
+      await new Promise(resolve => setTimeout(resolve, 250))
+      await chrome.tabs.reload(existing.id).catch(() => {})
+      if (existing.windowId) chrome.windows.update(existing.windowId, { focused: true }).catch(() => {})
+      return
+    }
+  } catch (error) {
+    logger.debug('reuse console tab failed:', error)
+  }
+
+  await chrome.tabs.create({ url })
 }
 
 // CMS 图标
@@ -786,51 +827,33 @@ function getCmsIcon(type: string): string {
 }
 
 /**
- * 处理右键菜单点击
+ * 处理右键菜单点击：提取当前页文章 → 存成「待同步文章」→ 打开控制台同步页
+ *
+ * 以前是把文章丢给 content script 里的内嵌编辑器，那个面板刷新就没了、也存不下来，
+ * 用户点完只看到一闪而过的窗口。现在统一落到控制台：
+ * 内容写进 storage.local（待同步文章），控制台里可以继续编辑、直接同步或发布，
+ * 定时时间在同步页右侧的「发布设置」里选。
  */
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === 'ugaeo-open-editor' && tab?.id) {
-    try {
-      // 获取 DSL 平台
-      const dslPlatforms = await checkAllPlatformsAuth(false)
+  if (info.menuItemId !== 'ugaeo-open-editor' || !tab?.id) return
 
-      // 为 DSL 平台添加 sourceType
-      const dslWithType = dslPlatforms.map((p: any) => ({
-        ...p,
-        sourceType: 'dsl' as const,
-      }))
+  try {
+    const { article, reason } = await extractArticleFromTab(tab.id, tab.url)
 
-      // 获取 CMS 账户
-      const cmsStorage = await chrome.storage.local.get('cmsAccounts')
-      const cmsAccounts = cmsStorage.cmsAccounts || []
-      const cmsPlatforms = cmsAccounts
-        .filter((a: any) => a.isConnected)
-        .map((a: any) => ({
-          id: a.id,
-          name: a.name,
-          icon: getCmsIcon(a.type),
-          homepage: a.url,
-          isAuthenticated: true,
-          username: a.username,
-          sourceType: 'cms' as const,
-          cmsType: a.type,
-          capabilities: ['article', 'draft', 'publish'],
-        }))
-
-      // 合并所有平台，过滤用户隐藏的平台
-      const { hiddenPlatforms: hidden = [] } = await chrome.storage.local.get('hiddenPlatforms')
-      const allPlatforms = [...dslWithType, ...cmsPlatforms].filter(p => !hidden.includes(p.id))
-
-      // 发送消息到 content script 打开编辑器
-      await sendTabMessage(tab.id, {
-        type: 'OPEN_EDITOR',
-        platforms: allPlatforms,
-        selectedPlatforms: [], // 右键打开时默认选中所有已登录平台
-      })
-    } catch (error) {
-      logger.error(' Failed to open editor from context menu:', error)
+    if (!article) {
+      await chrome.storage.local.set({ pendingArticleError: describeExtractFailure(reason) })
+    } else {
+      await chrome.storage.local.set({ pendingArticle: article })
+      await chrome.storage.local.remove('pendingArticleError')
     }
+  } catch (error) {
+    logger.error(' Failed to extract article from context menu:', error)
+    await chrome.storage.local
+      .set({ pendingArticleError: `提取失败：${(error as Error).message}` })
+      .catch(() => {})
   }
+
+  await focusConsoleSyncPage()
 })
 
 /**
@@ -887,7 +910,12 @@ chrome.runtime.onInstalled.addListener(async details => {
  * 启动时初始化 MCP（如果已启用）
  */
 async function initMcpIfEnabled() {
-  const storage = await chrome.storage.local.get(['mcpEnabled', 'mcpToken', 'mcpServerUrl'])
+  const storage = await chrome.storage.local.get([
+    'mcpEnabled',
+    'mcpToken',
+    'mcpServerUrl',
+    'mcpEverConnected',
+  ])
   if (storage.mcpEnabled) {
     if (storage.mcpToken) {
       mcpClient.setToken(storage.mcpToken)
@@ -902,6 +930,13 @@ async function initMcpIfEnabled() {
     // 加载自定义服务器地址（支持远程桥接）
     if (storage.mcpServerUrl) {
       mcpClient.setServerUrl(storage.mcpServerUrl)
+    }
+    // 从没连上过（没跑本地 MCP 服务）就不在启动时连。
+    // 每次连不上 Chrome 都会往扩展错误面板记一条，普通用户会以为扩展坏了。
+    // 用户打开弹窗设置页（MCP_WATCH_START）或手动重新启用时才发起连接。
+    if (storage.mcpEverConnected !== true) {
+      logger.info(' MCP enabled but never connected before, skip auto-connect')
+      return
     }
     startMcpClient()
   }

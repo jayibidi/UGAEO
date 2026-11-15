@@ -4,6 +4,7 @@ import {
   Sparkles, Rocket, KeyRound, RefreshCw, Loader2, CheckCircle2, AlertCircle, Timer,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PlatformIcon } from '../../components/platform-icon'
 import { trackFeatureDiscovery } from '../../lib/analytics'
 import {
   getPublishSettings,
@@ -424,12 +425,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                         isHidden && 'opacity-40',
                       )}
                     >
-                      <img
-                        src={platform.icon}
-                        alt={platform.name}
-                        className="w-5 h-5 rounded flex-shrink-0"
-                        onError={(e) => { (e.target as HTMLImageElement).src = '/assets/icon-48.png' }}
-                      />
+                      <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={20} />
                       <span className="text-sm flex-1 truncate">{platform.name}</span>
                       {isHidden ? (
                         <EyeOff className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -519,12 +515,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                       const effective = canPublish ? (overrideMode || 'publish') : 'draft'
                       return (
                         <div key={platform.id} className="flex items-center gap-2 p-2 bg-muted/40 rounded-lg">
-                          <img
-                            src={platform.icon}
-                            alt=""
-                            className="w-4 h-4 rounded flex-shrink-0"
-                            onError={(e) => { (e.target as HTMLImageElement).src = '/assets/icon-48.png' }}
-                          />
+                          <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={16} />
                           <span className="text-xs flex-1 truncate">{platform.name}</span>
                           {canPublish ? (
                             <div className="flex rounded-md overflow-hidden border border-border">

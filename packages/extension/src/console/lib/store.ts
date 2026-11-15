@@ -6,6 +6,7 @@ import {
   buildDraftOnlyMap,
   defaultScheduleValue,
   draftPublishMode,
+  isPublishable,
   isScheduleValid,
   parseDateTimeLocal,
 } from './publish-flow'
@@ -25,6 +26,13 @@ import type {
 const SELECTED_PLATFORMS_KEY = 'selectedPlatforms'
 /** 带入发布页的草稿，刷新控制台后不丢 */
 const PENDING_DRAFTS_KEY = 'pendingDraftRefs'
+/**
+ * 待同步文章本体
+ *
+ * 以前只存在内存里，刷新控制台就没了；右键菜单提取、手动新建、边改边存
+ * 都需要它活过页面刷新，所以落一份到 storage.local。
+ */
+export const PENDING_ARTICLE_KEY = 'pendingArticle'
 const HANDOFF_KEY = 'consoleHandoff'
 const HANDOFF_TTL = 30 * 60 * 1000
 
@@ -211,6 +219,23 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       // ignore
     }
 
+    // 2.5 上次没发完 / 刚存下的待同步文章（右键提取、手动新建都写这里）
+    try {
+      const stored = await chrome.storage.local.get([PENDING_ARTICLE_KEY, 'pendingArticleError'])
+      const pendingArticle = stored[PENDING_ARTICLE_KEY] as Article | undefined
+      if (pendingArticle && !get().article) {
+        set({ article: pendingArticle })
+      }
+      // 右键提取失败的原因，带过来给用户看（否则只会看到一个空页面）
+      const extractError = stored.pendingArticleError as string | undefined
+      if (extractError) {
+        set({ notice: { kind: 'error', text: extractError } })
+        await chrome.storage.local.remove('pendingArticleError')
+      }
+    } catch {
+      // ignore
+    }
+
     // 3. 发布设置 + 选中的平台
     try {
       const settings = await getPublishSettings()
@@ -314,7 +339,15 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
     chrome.tabs.create({ url: platform.homepage }).catch(() => {})
   },
 
-  setArticle: (article) => set({ article }),
+  setArticle: (article) => {
+    set({ article })
+    // 落盘：控制台刷新、切换页签后内容都还在
+    if (article) {
+      chrome.storage.local.set({ [PENDING_ARTICLE_KEY]: article }).catch(() => {})
+    } else {
+      chrome.storage.local.remove(PENDING_ARTICLE_KEY).catch(() => {})
+    }
+  },
 
   extractFromActiveTab: async () => {
     try {
@@ -328,6 +361,7 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       }
 
       set({ article })
+      chrome.storage.local.set({ [PENDING_ARTICLE_KEY]: article }).catch(() => {})
       return true
     } catch (error) {
       set({ notice: { kind: 'error', text: `提取失败：${(error as Error).message}` } })
@@ -374,11 +408,24 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
   },
 
   setPublishMode: (mode) =>
-    set(state => ({
-      publishMode: mode,
-      // 切到发布页时如果没有定时时间，给一个默认值，省得用户每次都要点
-      scheduledAt: mode === 'publish' && !state.scheduledAt ? defaultScheduleValue() : state.scheduledAt,
-    })),
+    set(state => {
+      if (mode === 'publish') {
+        // 草稿页是全量平台，切到发布页要把「未登录 / 无直发能力」的从选中里摘掉，
+        // 否则点发布时会带着一批注定失败的平台
+        const allowed = new Set(
+          state.platforms
+            .filter(platform => platform.isAuthenticated && isPublishable(platform))
+            .map(platform => platform.id)
+        )
+        return {
+          publishMode: mode,
+          selectedPlatforms: state.selectedPlatforms.filter(id => allowed.has(id)),
+          // 切到发布页时如果没有定时时间，给一个默认值，省得用户每次都要点
+          scheduledAt: state.scheduledAt || defaultScheduleValue(),
+        }
+      }
+      return { publishMode: mode }
+    }),
 
   setPublishTiming: (timing) =>
     set(state => ({

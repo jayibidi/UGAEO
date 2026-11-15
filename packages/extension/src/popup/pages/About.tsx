@@ -1,5 +1,9 @@
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Github, Globe, MessageSquare, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Github, Globe, Zap, ExternalLink } from 'lucide-react'
+import { CONSOLE_URL, REPO_URL } from '@ugaeo/core'
+
+/** 官网（产品主页 / 联系入口） */
+const SITE_URL = 'https://www.ugooto.cn'
 
 export function AboutPage() {
   const navigate = useNavigate()
@@ -26,39 +30,39 @@ export function AboutPage() {
 
         {/* Description */}
         <p className="text-sm text-muted-foreground text-center mt-4 leading-relaxed">
-          一键将文章同步到多个平台
+          鱼骨全媒体同步/分发AI助手
         </p>
 
         {/* Links */}
         <div className="flex flex-col gap-2 mt-6 w-full max-w-[240px]">
           <a
-            href="https://api.ugooto-ai.com"
+            href={REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
           >
             <Github className="w-4 h-4 flex-shrink-0" />
-            <span className="flex-1">UGooTo</span>
+            <span className="flex-1">GitHub</span>
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
           </a>
           <a
-            href="https://api.ugooto-ai.com/console"
+            href={CONSOLE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
+          >
+            <Zap className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1">API算力池</span>
+            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+          </a>
+          <a
+            href={SITE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
           >
             <Globe className="w-4 h-4 flex-shrink-0" />
-            <span className="flex-1">控制台</span>
-            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-          </a>
-          <a
-            href="https://api.ugooto-ai.com/console"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
-          >
-            <MessageSquare className="w-4 h-4 flex-shrink-0" />
-            <span className="flex-1">问题反馈</span>
+            <span className="flex-1">鱼骨智能官网</span>
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
           </a>
         </div>

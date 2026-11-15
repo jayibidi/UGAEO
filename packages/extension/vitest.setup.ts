@@ -91,6 +91,9 @@ vi.mock('@ugaeo/core', () => ({
       return null
     }),
   },
+  // 与 core 里同名实现保持一致：本地导出工具不是内容平台，各类统计/列表都不算它
+  LOCAL_TOOL_PLATFORM_IDS: ['zip-download'],
+  isLocalToolPlatform: (platformId: string) => platformId === 'zip-download',
 }))
 
 // Mock analytics（避免实际追踪）

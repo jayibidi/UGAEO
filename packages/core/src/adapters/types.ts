@@ -174,6 +174,10 @@ export interface AdapterDiagnostics {
   titleSelectors?: string[]
   editorSelectors?: string[]
   publishTexts?: string[]
+  /** 纯人工平台：只打开入口页，不注入内容（百科词条、问答这类） */
+  manualOnly?: boolean
+  /** 进入编辑器前需要依次点击的入口文案（小红书：写长文 → 新的创作） */
+  entrySteps?: string[][]
 }
 
 export interface PlatformAdapter {

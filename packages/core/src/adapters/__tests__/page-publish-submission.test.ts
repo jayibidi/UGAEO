@@ -11,8 +11,10 @@ type ExecuteResult = { ok: boolean; stage: string; message?: string; url?: strin
 function createRuntime(scriptResult: ExecuteResult | null | undefined): {
   runtime: RuntimeInterface
   created: string[]
+  injected: number
 } {
   const created: string[] = []
+  const stats = { injected: 0 }
   const runtime = {
     type: 'extension',
     fetch: async () => new Response('{}', { status: 200 }),
@@ -26,10 +28,19 @@ function createRuntime(scriptResult: ExecuteResult | null | undefined): {
         return { id: 1 }
       },
       waitForLoad: async () => {},
-      executeScript: async () => scriptResult,
+      executeScript: async () => {
+        stats.injected++
+        return scriptResult
+      },
     },
   } as unknown as RuntimeInterface
-  return { runtime, created }
+  return {
+    runtime,
+    created,
+    get injected() {
+      return stats.injected
+    },
+  }
 }
 
 /** 跳过基类里等待编辑器渲染的延时 */
@@ -64,16 +75,19 @@ describe('投稿制平台（仅草稿层）', () => {
     expect(result.postUrl).toContain('ithome.com')
   })
 
-  it('填入成功后仍提示需要人工提交', async () => {
-    const { runtime } = createRuntime({ ok: true, stage: 'filled', url: 'https://www.ithome.com/tougao/' })
+  it('纯人工平台只开入口页、不发注入，并说清楚要人工投递', async () => {
+    // IT之家的投稿入口是说明页（0 个输入框），硬填只会把标题打进搜索框
+    const env = createRuntime({ ok: true, stage: 'filled', url: 'https://dyn.ithome.com/tougao' })
     const adapter = noDelay(new IthomeAdapter())
-    await adapter.init(runtime)
+    await adapter.init(env.runtime)
 
     const result = await adapter.publish(article, { draftOnly: true })
 
     expect(result.success).toBe(true)
     expect(result.draftOnly).toBe(true)
-    expect(result.message).toContain('手动提交')
+    expect(result.message).toContain('人工投递')
+    expect(env.injected).toBe(0)
+    expect(env.created[0]).toContain('dyn.ithome.com/tougao')
   })
 })
 
