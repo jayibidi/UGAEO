@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FilePlus2, FileText, Link2, PencilLine, RefreshCw } from 'lucide-react'
+import { Feather, FilePlus2, FileText, Link2, Loader2, PencilLine, RefreshCw } from 'lucide-react'
 import { useConsoleStore } from '../lib/store'
 import { PlatformPicker } from '../components/PlatformPicker'
 import { PublishSettings } from '../components/PublishSettings'
@@ -16,6 +16,9 @@ export function SyncPage() {
     selectedPlatforms,
     setArticle,
     extractFromActiveTab,
+    feishuCapture,
+    startFeishuCapture,
+    cancelFeishuCapture,
     history,
   } = useConsoleStore()
 
@@ -40,6 +43,13 @@ export function SyncPage() {
             <div className="flex gap-1.5">
               <button
                 className="uga-btn-secondary px-2.5 py-1 text-xs"
+                onClick={() => startFeishuCapture()}
+                title="打开飞书云文档，在飞书里编好图文，回到这里就自动带过来"
+              >
+                <Feather className="h-3.5 w-3.5" /> 从飞书文档中提取
+              </button>
+              <button
+                className="uga-btn-secondary px-2.5 py-1 text-xs"
                 onClick={() => extractFromActiveTab()}
               >
                 <RefreshCw className="h-3.5 w-3.5" /> 从当前页面提取
@@ -49,6 +59,24 @@ export function SyncPage() {
               </button>
             </div>
           </div>
+
+          {feishuCapture.status === 'waiting' && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+              <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">正在等待飞书文档</p>
+                <p className="mt-0.5 leading-relaxed text-muted-foreground">
+                  已打开飞书云文档。在飞书里打开任意文档，正文与图片会自动提取到这里（30 分钟内有效）。
+                </p>
+              </div>
+              <button
+                className="flex-shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={() => cancelFeishuCapture()}
+              >
+                取消
+              </button>
+            </div>
+          )}
 
           {article ? (
             <div className="flex gap-4">
@@ -63,6 +91,7 @@ export function SyncPage() {
                 <h3 className="line-clamp-2 text-sm font-medium">{article.title || '（未命名草稿）'}</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {wordCount(article)} 字
+                  {article.imageCount ? ` · ${article.imageCount} 张图` : ''}
                   {article.tags?.length ? ` · ${article.tags.join(' / ')}` : ''}
                   {article.platformContents ? ' · 含平台专属版本' : ''}
                 </p>

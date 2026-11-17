@@ -17,6 +17,7 @@ import { htmlToMarkdownNative, type PreprocessConfig } from '@ugaeo/core'
 import { createLogger } from '../lib/logger'
 import { preprocessContentDOM, preprocessForPlatform, backupAndSimplifyCodeBlocks, restoreCodeBlocks, type PreprocessResult } from '../lib/content-processor'
 import { createSyncFab } from '../lib/fab'
+import { renderFeishuDomBlock } from './feishu-dom'
 
 const logger = createLogger('Extractor')
 
@@ -26,6 +27,8 @@ interface ExtractedArticle {
   html?: string      // 原始 HTML（可选，用于某些平台）
   summary?: string
   cover?: string
+  /** 正文里的图片数量（飞书提取时用于提示「含 N 张图」） */
+  imageCount?: number
   source: {
     url: string
     platform: string
@@ -110,11 +113,38 @@ function extractWeixinArticle(): ExtractedArticle | null {
 // ========== 飞书文档提取 ==========
 
 /**
+ * 飞书文档提取（编排）
+ *
+ * 三条路，按可靠性从高到低：
+ *  1. clientVars —— 结构化数据，格式最准（标题层级、加粗、链接、表格都能还原）
+ *  2. DOM 块扫描 —— 新版 SPA 不一定再内联 clientVars，直接扫 `[data-block-id]`
+ *  3. 图片内联 —— 飞书图片地址要带登录态 Cookie，别的平台拿不到，
+ *     必须在这里转成 dataURL，否则同步出去全是裂图
+ */
+async function extractFeishuArticle(): Promise<ExtractedArticle | null> {
+  let base = await extractFeishuFromClientVars()
+  if (!base) base = await extractFeishuFromDom()
+  if (!base) return null
+  if (!base.html) return base
+
+  const inlined = await inlineFeishuImages(base.html)
+  const markdown = htmlToMarkdownNative(inlined.html)
+
+  return {
+    ...base,
+    html: inlined.html,
+    markdown,
+    cover: base.cover || inlined.cover,
+    imageCount: inlined.total,
+  }
+}
+
+/**
  * fetch 当前页面 HTML，从 <script> 标签中解析 clientVars。
  * 飞书在 HTML 中通过 inline script 设置 window.DATA = Object.assign({}, window.DATA, { clientVars: ... })
  * 直接用正则从 HTML 文本中提取 clientVars JSON，不受 CSP 限制。
  */
-async function extractFeishuArticle(): Promise<ExtractedArticle | null> {
+async function extractFeishuFromClientVars(): Promise<ExtractedArticle | null> {
   try {
     const resp = await fetch(window.location.href, { credentials: 'include' })
     if (!resp.ok) return null
@@ -160,8 +190,194 @@ async function extractFeishuArticle(): Promise<ExtractedArticle | null> {
 
     return null
   } catch (e) {
-    logger.error('飞书文档提取失败', e)
+    // 页面没内联 clientVars 是常态（新版 SPA），走 DOM 兜底，不用 error 级
+    logger.debug('clientVars 解析未命中:', (e as Error).message)
     return null
+  }
+}
+
+/** 图片上限：再多就不是「文章」了，而且 dataURL 会把存储撑爆 */
+const FEISHU_MAX_IMAGES = 24
+/** 单张原图上限，超过就放弃内联，保留原地址 */
+const FEISHU_MAX_IMAGE_BYTES = 12 * 1024 * 1024
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+/** 缩到 1400px 宽、转 JPEG，和编辑器粘贴图片的口径一致 */
+async function compressImageBlob(blob: Blob, maxWidth = 1400, quality = 0.82): Promise<string | null> {
+  const dataUrl = await blobToDataUrl(blob)
+  const img = await new Promise<HTMLImageElement | null>(resolve => {
+    const el = new Image()
+    el.onload = () => resolve(el)
+    el.onerror = () => resolve(null)
+    el.src = dataUrl
+  })
+  if (!img) return null
+  if (img.width <= maxWidth) return dataUrl
+
+  const scale = maxWidth / img.width
+  const canvas = document.createElement('canvas')
+  canvas.width = maxWidth
+  canvas.height = Math.round(img.height * scale)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return dataUrl
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', quality)
+}
+
+/** 在页面上下文里拉图片（同源带 Cookie），失败就保留原地址 */
+async function fetchFeishuImageAsDataUrl(src: string): Promise<string | null> {
+  try {
+    const resp = await fetch(src, { credentials: 'include' })
+    if (!resp.ok) return null
+    const blob = await resp.blob()
+    if (!blob.type.startsWith('image/')) return null
+    if (blob.size > FEISHU_MAX_IMAGE_BYTES) return null
+    // GIF 一律原样保留，canvas 一过就没动画了
+    if (blob.type === 'image/gif') return blobToDataUrl(blob)
+    return await compressImageBlob(blob)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 把正文里的图片换成 dataURL，并把第一张图当封面
+ *
+ * 飞书图片地址形如 `<tenant>/space/api/box/stream/download/all/<token>/`，
+ * 必须带该租户的登录 Cookie 才返回图片；同步到公众号/知乎/头条时对方服务器拿不到，
+ * 结果就是一张裂图。所以必须在提取阶段就地下载、内联。
+ */
+async function inlineFeishuImages(
+  html: string
+): Promise<{ html: string; total: number; inlined: number; cover?: string }> {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const imgs = Array.from(doc.querySelectorAll('img'))
+  if (!imgs.length) return { html, total: 0, inlined: 0 }
+
+  const targets = imgs.slice(0, FEISHU_MAX_IMAGES)
+  let inlined = 0
+  let cursor = 0
+
+  // 3 个并发：太多会被飞书限流，太少大文档要等到天荒地老
+  const worker = async () => {
+    while (cursor < targets.length) {
+      const img = targets[cursor++]
+      const src = img.getAttribute('src') || ''
+      if (!src) continue
+      if (src.startsWith('data:')) { inlined++; continue }
+      const dataUrl = await fetchFeishuImageAsDataUrl(src)
+      if (dataUrl) {
+        img.setAttribute('src', dataUrl)
+        img.removeAttribute('data-src')
+        inlined++
+      }
+    }
+  }
+  await Promise.all([worker(), worker(), worker()])
+
+  const firstInline = Array.from(doc.querySelectorAll('img')).find(img =>
+    (img.getAttribute('src') || '').startsWith('data:')
+  )
+  const cover = firstInline?.getAttribute('src') || undefined
+
+  // 一张都没内联成功（多半是被防盗链拦了）时，保留原 HTML，别把图文搞成空白
+  return {
+    html: doc.body.innerHTML,
+    total: imgs.length,
+    inlined,
+    cover: inlined > 0 ? cover : undefined,
+  }
+}
+
+/**
+ * 找飞书文档真正的滚动容器
+ *
+ * 正文不一定走 window 滚动，`document.scrollingElement.scrollTop` 常常纹丝不动，
+ * 那就只能收集到首屏的块。这里从第一个块往上找 overflow-y 可滚的祖先。
+ */
+function findFeishuScroller(): HTMLElement {
+  const firstBlock = document.querySelector<HTMLElement>('[data-block-id]')
+  let el: HTMLElement | null = firstBlock?.parentElement ?? null
+  while (el && el !== document.body && el !== document.documentElement) {
+    const style = getComputedStyle(el)
+    if (/(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 40) {
+      return el
+    }
+    el = el.parentElement
+  }
+  return (document.scrollingElement as HTMLElement | null) || document.documentElement
+}
+
+/**
+ * DOM 兜底提取
+ *
+ * 飞书文档是虚拟滚动：DOM 里只有视口附近的块。所以边滚边拍快照，
+ * 用「容器 scrollTop + rect.top」算每块的绝对位置来还原顺序（块被卸载后仍在手里），
+ * 最后按位置排序输出。
+ */
+async function extractFeishuFromDom(): Promise<ExtractedArticle | null> {
+  const blockEls = () => Array.from(document.querySelectorAll<HTMLElement>('[data-block-id]'))
+  if (!blockEls().length) return null
+
+  const scroller = findFeishuScroller()
+  const startScroll = scroller.scrollTop
+  const viewportH = scroller === document.documentElement
+    ? window.innerHeight
+    : scroller.clientHeight || window.innerHeight
+
+  /** blockId -> 快照 */
+  const snapshots = new Map<string, { top: number; html: string }>()
+
+  const capture = () => {
+    for (const el of blockEls()) {
+      const id = el.getAttribute('data-block-id')
+      if (!id || snapshots.has(id)) continue
+      const top = el.getBoundingClientRect().top + scroller.scrollTop
+      const html = renderFeishuDomBlock(el)
+      if (html) snapshots.set(id, { top, html })
+    }
+  }
+
+  capture()
+  // 逐屏往下滚，最多 80 屏，够覆盖万字长文
+  for (let i = 0; i < 80; i++) {
+    const before = scroller.scrollTop
+    scroller.scrollTop = before + Math.round(viewportH * 0.8)
+    await new Promise(r => setTimeout(r, 150))
+    capture()
+    if (scroller.scrollTop === before) break
+  }
+  // 回到用户原来的位置，别把人家的阅读进度弄丢
+  scroller.scrollTop = startScroll
+  await new Promise(r => setTimeout(r, 60))
+
+  const ordered = Array.from(snapshots.values())
+    .sort((a, b) => a.top - b.top)
+    .map(item => item.html)
+  if (!ordered.length) return null
+
+  const html = ordered.join('\n')
+  const titleEl = document.querySelector<HTMLElement>(
+    '[data-page-title], .docx-page-title, .page-title, h1'
+  )
+  const title =
+    titleEl?.innerText?.trim().split('\n')[0] || document.title.replace(/\s*-\s*飞书.*$/, '').trim()
+
+  return {
+    title: title || '未命名飞书文档',
+    html,
+    markdown: htmlToMarkdownNative(html),
+    source: { url: window.location.href, platform: 'feishu' },
   }
 }
 

@@ -12,6 +12,7 @@ import {
 import { useConsoleStore } from '../lib/store'
 import { PlatformIcon } from './PlatformBadge'
 import { SyncResults } from './SyncResults'
+import { TitleRulePreview } from './TitleRulePreview'
 import {
   countUnauthenticated,
   draftPublishMode,
@@ -109,6 +110,8 @@ export function PublishSettings() {
           <Send className="h-3.5 w-3.5" /> 立即发布
         </button>
       </div>
+
+      <TitleRulePreview />
 
       {publishMode === 'draft' ? (
         <div className="space-y-3">

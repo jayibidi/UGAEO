@@ -24,7 +24,7 @@ export interface AIProcessor {
    * @param platform 目标平台
    * @returns 优化后的标题选项
    */
-  optimizeTitle(title: string, platform: string): Promise<string[]>
+  optimizeTitle(title: string, platform: string, maxLen?: number): Promise<string[]>
 
   /**
    * 生成文章摘要
@@ -72,7 +72,7 @@ export interface AIProcessor {
  * 直接返回原值，不做任何处理
  */
 export class NoopAIProcessor implements AIProcessor {
-  async optimizeTitle(title: string): Promise<string[]> {
+  async optimizeTitle(title: string, _platform?: string, _maxLen?: number): Promise<string[]> {
     return [title]
   }
 

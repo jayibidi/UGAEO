@@ -48,6 +48,8 @@ export interface SyncResult {
   reviewStatus?: 'published' | 'reviewing' | 'rejected' | 'unknown'
   reviewStatusText?: string
   reviewChecked?: boolean
+  /** 按平台规则 / AI 改过标题时的说明 */
+  titleNote?: string
 }
 
 /** 一篇已经存在于平台草稿箱里的草稿 */
@@ -80,6 +82,10 @@ export interface Article {
   summary?: string
   cover?: string
   tags?: string[]
+  /** 按平台覆盖标题（规则适配 / AI 改写的结果） */
+  platformTitles?: Record<string, string>
+  /** 正文里的图片数（飞书提取时统计，用于提示「含 N 张图」） */
+  imageCount?: number
   source?: { url?: string; platform?: string }
   platformContents?: Record<string, { html: string; markdown: string }>
 }

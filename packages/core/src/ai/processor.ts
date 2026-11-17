@@ -71,12 +71,12 @@ export class OpenAIProcessor implements AIProcessor {
     })
   }
 
-  async optimizeTitle(title: string, platform: string): Promise<string[]> {
+  async optimizeTitle(title: string, platform: string, maxLen?: number): Promise<string[]> {
     try {
       const raw = await this.client.chat(
         [
           { role: 'system', content: SYSTEM_EDITOR },
-          { role: 'user', content: titlePrompt(title, platform, 5) },
+          { role: 'user', content: titlePrompt(title, platform, 5, maxLen) },
         ],
         { temperature: 0.9, maxTokens: 800 }
       )

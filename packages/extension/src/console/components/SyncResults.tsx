@@ -90,6 +90,9 @@ export function SyncResults({
                 {result.message && !result.error && (
                   <div className="mt-0.5 line-clamp-2 text-muted-foreground">{result.message}</div>
                 )}
+                {result.titleNote && (
+                  <div className="mt-0.5 line-clamp-2 text-amber-600">{result.titleNote}</div>
+                )}
               </div>
 
               {result.postUrl && (

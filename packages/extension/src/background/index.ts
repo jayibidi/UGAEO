@@ -28,6 +28,13 @@ import {
 } from '../lib/analytics'
 import { checkSyncFrequency, recordSync } from '../lib/rate-limit'
 import { extractArticleFromTab, describeExtractFailure } from '../lib/tab-extractor'
+import {
+  FEISHU_CAPTURE_TTL,
+  isCaptureActive,
+  isFeishuDocUrl,
+  pickFeishuHomeUrl,
+  type FeishuCaptureState,
+} from '../lib/feishu-capture'
 // 注意：这两个模块必须静态导入。
 // MV3 service worker 里没有 document，而 Vite 会把 `await import()` 包成
 // __vitePreload(...)，该 helper 内部会访问 document.head / querySelector 来预加载
@@ -86,6 +93,8 @@ type MessageAction =
   | { type: 'UPDATE_SYNC_STATUS'; payload: { status: 'syncing' | 'completed' } }
   | { type: 'CANCEL_SYNC' }
   | { type: 'START_SYNC_FROM_EDITOR'; article: any; platforms: string[]; syncId?: string }
+  | { type: 'START_FEISHU_CAPTURE' }
+  | { type: 'CANCEL_FEISHU_CAPTURE' }
   | { type: 'UPLOAD_IMAGE'; payload: { src: string; platform?: string } }
   | { type: 'MAGIC_CALL'; payload: { methodName: string; data: any } }
   | { type: 'CLEAR_UPDATE_BADGE' }
@@ -137,6 +146,16 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       await initAdapters()
       const platforms = getAllPlatformMetas()
       return { platforms }
+    }
+
+    case 'START_FEISHU_CAPTURE': {
+      const result = await startFeishuCapture()
+      return result
+    }
+
+    case 'CANCEL_FEISHU_CAPTURE': {
+      await chrome.storage.local.set({ [FEISHU_CAPTURE_KEY]: { status: 'idle' } })
+      return { ok: true }
     }
 
     case 'DIAGNOSE_PLATFORMS': {
@@ -810,6 +829,121 @@ async function focusConsoleSyncPage() {
   }
 
   await chrome.tabs.create({ url })
+}
+
+// ========== 飞书文档捕获 ==========
+
+/** 捕获状态，控制台与后台共用 */
+const FEISHU_CAPTURE_KEY = 'feishuCapture'
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+/**
+ * 点「从飞书文档中提取」：打开飞书云文档主页，并开一个 30 分钟的捕获窗口。
+ *
+ * 之后用户在该标签页打开任意文档，onUpdated 会把正文抽出来写进「待同步文章」。
+ * 这样用户能借飞书的排版 / 图床能力编好稿，切回控制台直接同步，不用挨个平台二次排版。
+ */
+async function startFeishuCapture(): Promise<{ homeUrl: string; until: number }> {
+  const openTabs = await chrome.tabs.query({})
+  const homeUrl = pickFeishuHomeUrl(openTabs.map(tab => tab.url))
+  const until = Date.now() + FEISHU_CAPTURE_TTL
+
+  const state: FeishuCaptureState = { status: 'waiting', until, homeUrl }
+  await chrome.storage.local.set({ [FEISHU_CAPTURE_KEY]: state })
+
+  // 已经有云文档主页开着就复用，别让用户面对一堆重复标签页
+  const existing = openTabs.find(tab => tab.id && (tab.url || '').includes('/drive/home'))
+  if (existing?.id) {
+    await chrome.tabs.update(existing.id, { active: true })
+    if (existing.windowId) {
+      chrome.windows.update(existing.windowId, { focused: true }).catch(() => {})
+    }
+  } else {
+    await chrome.tabs.create({ url: homeUrl })
+  }
+
+  logger.info(' Feishu capture armed:', homeUrl)
+  return { homeUrl, until }
+}
+
+/** 同标签页同地址只抽一次：飞书是 SPA，onUpdated 会响很多次 */
+const feishuHandled = new Map<number, string>()
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const url = changeInfo.url || tab.url
+  if (!isFeishuDocUrl(url)) return
+  if (feishuHandled.get(tabId) === url) return
+  void captureFeishuDoc(tabId, url as string).catch(error => {
+    logger.warn(' feishu capture failed:', (error as Error).message)
+  })
+})
+
+interface CapturedFeishuArticle {
+  title?: string
+  markdown?: string
+  html?: string
+  summary?: string
+  cover?: string
+  imageCount?: number
+  source?: { url?: string; platform?: string }
+}
+
+async function captureFeishuDoc(tabId: number, url: string): Promise<void> {
+  const stored = await chrome.storage.local.get(FEISHU_CAPTURE_KEY)
+  const state = stored[FEISHU_CAPTURE_KEY] as FeishuCaptureState | undefined
+  // 没有在捕获窗口里就完全不介入，用户平时浏览飞书不该被打扰
+  if (!isCaptureActive(state)) return
+
+  feishuHandled.set(tabId, url)
+
+  // 飞书文档是 SPA，正文块要等接口回来才挂上去；第一次抽空了再给一次机会
+  await sleep(2500)
+  let outcome = await extractArticleFromTab<CapturedFeishuArticle>(tabId, url)
+  if (!outcome.article) {
+    await sleep(2500)
+    outcome = await extractArticleFromTab<CapturedFeishuArticle>(tabId, url)
+  }
+
+  const article = outcome.article
+
+  if (!article) {
+    await chrome.storage.local.set({
+      [FEISHU_CAPTURE_KEY]: {
+        status: 'failed',
+        until: Date.now() + 5 * 60 * 1000,
+        error: `这个飞书文档没能提取到正文：${describeExtractFailure(outcome.reason)}`,
+      } satisfies FeishuCaptureState,
+    })
+    return
+  }
+
+  const title = (article.title || '').trim() || '未命名飞书文档'
+  const images = article.imageCount ?? 0
+
+  await chrome.storage.local.set({
+    pendingArticle: {
+      ...article,
+      title,
+      source: { url, platform: 'feishu' },
+    },
+    [FEISHU_CAPTURE_KEY]: {
+      status: 'done',
+      until: Date.now() + 10 * 60 * 1000,
+      title,
+      images,
+    } satisfies FeishuCaptureState,
+  })
+  await chrome.storage.local.remove('pendingArticleError').catch(() => {})
+  trackArticleExtract('feishu', true, {
+    hasTitle: !!title,
+    hasContent: !!article.markdown,
+    hasCover: !!article.cover,
+    contentLength: article.markdown?.length,
+  }).catch(() => {})
+
+  logger.info(' Feishu doc captured:', title, `${images} images`)
+  await focusConsoleSyncPage()
 }
 
 // CMS 图标

@@ -17,6 +17,8 @@ export interface Article {
     url: string
     platform: string
   }
+  /** 按平台覆盖标题（规则适配 / AI 改写的结果，同步时才生效） */
+  platformTitles?: Record<string, string>
 }
 
 /**
@@ -44,6 +46,8 @@ export interface SyncResult {
   reviewStatusText?: string
   /** 是否已经轮询过审核状态 */
   reviewChecked?: boolean
+  /** 按平台规则 / AI 改过标题时的说明（原标题多少字、改成了什么） */
+  titleNote?: string
   timestamp: number
 }
 

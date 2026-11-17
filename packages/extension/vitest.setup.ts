@@ -72,29 +72,43 @@ const mockAdapterRegistry = {
 }
 
 // Mock @ugaeo/core 模块
-vi.mock('@ugaeo/core', () => ({
-  adapterRegistry: {
-    setRuntime: vi.fn((runtime: any) => {
-      mockAdapterRegistry.runtime = runtime
-    }),
-    register: vi.fn(),
-    getAllMeta: vi.fn(() => mockAdapterRegistry.metas),
-    get: vi.fn(async (platformId: string) => {
-      const adapter = mockAdapterRegistry.adapters[platformId]
-      if (adapter) {
-        return {
-          ...adapter,
-          init: adapter.init || vi.fn().mockResolvedValue(undefined),
-          meta: mockAdapterRegistry.metas.find(m => m.id === platformId),
+// 平台规则与规则适配是纯函数（不碰 chrome / DOM），直接透传真实实现，
+// 免得每个用到它的测试都要自己 mock 一遍。
+vi.mock('@ugaeo/core', async () => {
+  const actual = await vi.importActual<typeof import('@ugaeo/core')>('@ugaeo/core')
+  return {
+    adapterRegistry: {
+      setRuntime: vi.fn((runtime: any) => {
+        mockAdapterRegistry.runtime = runtime
+      }),
+      register: vi.fn(),
+      getAllMeta: vi.fn(() => mockAdapterRegistry.metas),
+      get: vi.fn(async (platformId: string) => {
+        const adapter = mockAdapterRegistry.adapters[platformId]
+        if (adapter) {
+          return {
+            ...adapter,
+            init: adapter.init || vi.fn().mockResolvedValue(undefined),
+            meta: mockAdapterRegistry.metas.find(m => m.id === platformId),
+          }
         }
-      }
-      return null
-    }),
-  },
-  // 与 core 里同名实现保持一致：本地导出工具不是内容平台，各类统计/列表都不算它
-  LOCAL_TOOL_PLATFORM_IDS: ['zip-download'],
-  isLocalToolPlatform: (platformId: string) => platformId === 'zip-download',
-}))
+        return null
+      }),
+    },
+    // 与 core 里同名实现保持一致：本地导出工具不是内容平台，各类统计/列表都不算它
+    LOCAL_TOOL_PLATFORM_IDS: ['zip-download'],
+    isLocalToolPlatform: (platformId: string) => platformId === 'zip-download',
+    // 规则表与适配（纯函数）
+    PLATFORM_RULES: actual.PLATFORM_RULES,
+    getPlatformRule: actual.getPlatformRule,
+    platformPreconditions: actual.platformPreconditions,
+    adaptTitle: actual.adaptTitle,
+    countChars: actual.countChars,
+    effectiveTitleMax: actual.effectiveTitleMax,
+    truncateTitle: actual.truncateTitle,
+    titleFromBody: actual.titleFromBody,
+  }
+})
 
 // Mock analytics（避免实际追踪）
 vi.mock('../src/lib/analytics', () => ({

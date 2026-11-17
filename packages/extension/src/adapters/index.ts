@@ -549,12 +549,23 @@ export async function syncToMultiplePlatforms(
         }
       : undefined
 
+    // 平台专属标题：规则适配 / AI 改写算出来的，只在这一条链路上覆盖
+    const overrideTitle = (article as Article & { platformTitles?: Record<string, string> })
+      .platformTitles?.[platformId]
+    const articleForPlatform = overrideTitle
+      ? { ...article, title: overrideTitle }
+      : article
+
     const result = await syncToPlatform(
       platformId,
-      article,
+      articleForPlatform,
       { draftOnly: options?.draftOnlyByPlatform?.[platformId] ?? true },
       wrappedImageProgress
     )
+
+    if (overrideTitle && overrideTitle !== article.title) {
+      result.titleNote = `标题按规则改为「${overrideTitle}」`
+    }
 
     // 通知完成/失败
     callbacks?.onDetailProgress?.({

@@ -25,7 +25,7 @@ export interface AITaskBase {
 }
 
 export type AITask =
-  | ({ type: 'title'; title: string; platform: string } & AITaskBase)
+  | ({ type: 'title'; title: string; platform: string; /** 平台标题上限，超了会被拒 */ maxLen?: number } & AITaskBase)
   | ({ type: 'summary'; content: string; maxLength?: number } & AITaskBase)
   | ({ type: 'tags'; content: string; platform: string } & AITaskBase)
   | ({
@@ -129,7 +129,7 @@ export async function runAITask(task: AITask): Promise<AIResponse<unknown>> {
   try {
     switch (task.type) {
       case 'title': {
-        const titles = await processor.optimizeTitle(task.title, task.platform)
+        const titles = await processor.optimizeTitle(task.title, task.platform, task.maxLen)
         return { ok: true, data: titles }
       }
       case 'summary': {

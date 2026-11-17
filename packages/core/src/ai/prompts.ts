@@ -33,14 +33,19 @@ export function platformStyleHint(platformId: string, platformName?: string): st
 export const SYSTEM_EDITOR =
   '你是一位资深中文内容编辑，擅长把一篇文章改写成符合不同平台调性的版本。你的输出必须忠于原文事实，不虚构数据、不添加原文没有的结论，不使用夸张营销话术。'
 
-export function titlePrompt(title: string, platform: string, count: number): string {
+export function titlePrompt(title: string, platform: string, count: number, maxLen?: number): string {
+  const lengthRule = maxLen
+    ? `${Math.max(6, maxLen - 2)} 个字以内（该平台硬性上限 ${maxLen} 字，超过会被直接拒稿）`
+    : '12-28 个汉字'
+
   return `请为下面这篇文章拟 ${count} 个更适合「${platform}」平台的中文标题。
 
 要求：
 1. 保留原文核心信息，不虚构、不做标题党；
-2. 长度控制在 12-28 个汉字；
+2. 长度控制在 ${lengthRule}；
 3. 风格多样：至少包含 1 个提问式、1 个结论式、1 个数字/清单式；
-4. 不要加书名号、不要加 emoji。
+4. 不要加书名号、不要加 emoji；
+5. 宁可少说一点，也不要把句子截断成半句。
 
 原标题：${title}
 

@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { getPublishSettings } from '../../lib/publish-settings'
 import { extractArticleFromTab, describeExtractFailure } from '../../lib/tab-extractor'
+import { describeCaptureResult, isCaptureActive, type FeishuCaptureState } from '../../lib/feishu-capture'
+import { planTitleAdaptation, type TitlePlan } from '../../lib/title-strategy'
 import {
   buildDraftRefs,
   buildDraftOnlyMap,
@@ -33,6 +35,8 @@ const PENDING_DRAFTS_KEY = 'pendingDraftRefs'
  * 都需要它活过页面刷新，所以落一份到 storage.local。
  */
 export const PENDING_ARTICLE_KEY = 'pendingArticle'
+/** 飞书捕获状态（后台写、控制台读） */
+const FEISHU_CAPTURE_KEY = 'feishuCapture'
 const HANDOFF_KEY = 'consoleHandoff'
 const HANDOFF_TTL = 30 * 60 * 1000
 
@@ -92,6 +96,10 @@ interface ConsoleState {
 
   setArticle: (article: Article | null) => void
   extractFromActiveTab: () => Promise<boolean>
+  /** 飞书捕获：点按钮 → 打开云文档 → 用户在飞书里打开文档后自动提取 */
+  feishuCapture: FeishuCaptureState
+  startFeishuCapture: () => Promise<void>
+  cancelFeishuCapture: () => Promise<void>
   loadSnapshot: (syncId: string) => Promise<ArticleSnapshot | null>
 
   togglePlatform: (platformId: string) => void
@@ -181,6 +189,7 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
   lastRunKind: null,
   sync: { running: false, syncId: null, results: [], stages: {}, error: null },
   notice: null,
+  feishuCapture: { status: 'idle' },
 
   boot: async () => {
     if (get().booted) return
@@ -231,6 +240,31 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       if (extractError) {
         set({ notice: { kind: 'error', text: extractError } })
         await chrome.storage.local.remove('pendingArticleError')
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2.6 飞书捕获状态：后台抽完文档会 reload 本页，这里把结果/等待态读回来
+    try {
+      const stored = await chrome.storage.local.get(FEISHU_CAPTURE_KEY)
+      const capture = stored[FEISHU_CAPTURE_KEY] as FeishuCaptureState | undefined
+      if (capture && capture.status !== 'idle') {
+        set({ feishuCapture: capture })
+        if (capture.status === 'waiting' && !isCaptureActive(capture)) {
+          set({ feishuCapture: { status: 'idle' } })
+        }
+        if (capture.status === 'done') {
+          set({
+            notice: {
+              kind: 'ok',
+              text: describeCaptureResult(capture.title, capture.images),
+            },
+          })
+        }
+        if (capture.status === 'failed') {
+          set({ notice: { kind: 'error', text: capture.error } })
+        }
       }
     } catch {
       // ignore
@@ -366,6 +400,38 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
     } catch (error) {
       set({ notice: { kind: 'error', text: `提取失败：${(error as Error).message}` } })
       return false
+    }
+  },
+
+  startFeishuCapture: async () => {
+    try {
+      const result = (await chrome.runtime.sendMessage({ type: 'START_FEISHU_CAPTURE' })) as
+        | { homeUrl?: string; until?: number; error?: string }
+        | undefined
+      if (result?.error) throw new Error(result.error)
+
+      set({
+        feishuCapture: {
+          status: 'waiting',
+          until: result?.until || Date.now() + 30 * 60 * 1000,
+          homeUrl: result?.homeUrl || '',
+        },
+        notice: {
+          kind: 'info',
+          text: '已在飞书打开云文档：在飞书里打开任意文档，正文会自动提取到「待同步文章」',
+        },
+      })
+    } catch (error) {
+      set({ notice: { kind: 'error', text: `打开飞书失败：${(error as Error).message}` } })
+    }
+  },
+
+  cancelFeishuCapture: async () => {
+    set({ feishuCapture: { status: 'idle' } })
+    try {
+      await chrome.runtime.sendMessage({ type: 'CANCEL_FEISHU_CAPTURE' })
+    } catch {
+      // 后台没醒也没关系，状态窗口到点自然失效
     }
   },
 
@@ -554,15 +620,32 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
     // 控制台的两个页签是明确选择：草稿 = 全部存草稿，发布 = 全部尝试公开发布
     const draftOnlyByPlatform = buildDraftOnlyMap(mode, targets)
 
+    // 按平台规则适配标题：超长的先按标点截断保底，AI 可用时再换个说法
+    // 适配失败绝不阻断同步 —— 最差就是原样发出去，和以前一样
+    let articleForSync = article
+    let titlePlan: TitlePlan | null = null
+    try {
+      titlePlan = await planTitleAdaptation({
+        title: article.title,
+        bodyText: article.markdown || article.content || article.html || '',
+        platforms: targets.map(id => ({ id, name: metaById.get(id)?.name || id })),
+      })
+      if (Object.keys(titlePlan.titles).length) {
+        articleForSync = { ...article, platformTitles: titlePlan.titles }
+      }
+    } catch {
+      // ignore
+    }
+
     if (mode === 'publish' && options.timing === 'schedule' && options.publishAt) {
       const publishAt = options.publishAt
       const scheduled = await requestScheduledJob({
-        article,
+        article: articleForSync,
         platforms: targets,
         publishAt,
         draftOnlyByPlatform,
         kind: 'sync',
-        title: article.title,
+        title: articleForSync.title,
       })
 
       if (!scheduled.ok) {
@@ -587,7 +670,7 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       const response = await chrome.runtime.sendMessage({
         type: 'SYNC_ARTICLE',
         payload: {
-          article,
+          article: articleForSync,
           platforms: targets,
           syncId,
           draftOnlyByPlatform,
@@ -600,10 +683,12 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       const draftCount = results.filter(r => r.success && r.draftOnly !== false).length
       const publishedCount = results.filter(r => r.success && r.draftOnly === false).length
 
+      const adjusted = titlePlan?.items.length || 0
       const summary =
-        mode === 'draft'
+        (mode === 'draft'
           ? `已存为草稿：${draftCount} 个平台${failed ? `，${failed} 个失败` : ''}`
-          : `发布完成：${publishedCount} 个平台${draftCount ? `，${draftCount} 个仅存草稿` : ''}${failed ? `，${failed} 个失败` : ''}`
+          : `发布完成：${publishedCount} 个平台${draftCount ? `，${draftCount} 个仅存草稿` : ''}${failed ? `，${failed} 个失败` : ''}`) +
+        (adjusted ? `；${adjusted} 个平台标题已按规则调整` : '')
 
       set(state => ({
         sync: { ...state.sync, running: false, results },
