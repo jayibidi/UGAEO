@@ -33,7 +33,7 @@ let connectionTimeout = 30000
 program
   .name('ugaeo')
   .description('同步文章到多个内容平台 (知乎、掘金、CSDN 等)')
-  .version('2.8.0')
+  .version('2.8.1')
   .option('--timeout <ms>', '等待 Extension 连接超时（毫秒）', '30000')
   .hook('preAction', (thisCommand) => {
     const opts = thisCommand.opts()
@@ -973,7 +973,7 @@ if (process.argv.length <= 2) {
   console.log()
   console.log(`项目主页: ${chalk.cyan(WEBSITE_URL)}`)
   console.log()
-  console.log('支持的平台: 知乎、掘金、CSDN、头条、微博、B站、简书 等 34 个平台')
+  console.log('支持的平台: 知乎、掘金、CSDN、头条、微博、B站、简书 等 33 个平台')
   console.log()
   console.log(chalk.bold('快速开始:'))
   console.log(`  ${chalk.cyan('ugaeo sync article.md')}        同步 Markdown 文件`)

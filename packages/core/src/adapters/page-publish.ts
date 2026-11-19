@@ -36,6 +36,15 @@ export interface PagePublishConfig {
   editorUrlMatch: string
   /** 找不到时新建的编辑器地址 */
   editorUrl: string
+  /**
+   * 登录页地址（可选，默认同 editorUrl）
+   *
+   * 登录 Cookie 常常写在门户主域上，而不是创作者后台的子域：界面新闻的登录态在
+   * `www.jiemian.com`，投稿后台却是 `a.jiemian.com`；虎嗅登录在 `mp.huxiu.com`。
+   * 只按 editorUrl 查 Cookie 会漏，表现就是「明明登录了，扩展一直显示未登录」。
+   * 配了这里就一起查，错误提示里的地址也换成它 —— 用户照着点过去才能真的登录。
+   */
+  loginUrl?: string
   /** 标题输入框候选选择器 */
   titleSelectors: string[]
   /** 正文编辑器候选选择器 */
@@ -522,6 +531,40 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
 }
 
 /**
+ * 明确**不是**登录态凭证的 Cookie
+ *
+ * 这些 Cookie 游客也有（统计、反爬 WAF、云防护、UI 偏好），
+ * 一旦被当成「会话 Cookie」，就会把没登录的用户显示成已登录，
+ * 用户点同步才发现被踢到登录页 —— 比漏判更伤信任。
+ */
+const NON_SESSION_COOKIE = new RegExp(
+  '^(?:' +
+    [
+      '_ga', '_gid', '_gat', '_gcl', '_fbp', '_clck', '_clsk', '_uetsid', '_uab_collina',
+      'Hm_', 'HMACCOUNT', 'sensorsdata', 'sajssdk', 'cnzz', 'CNZZDATA', 'UM_distinctid',
+      'bd_', '__utm', '__jsluid', '__jsl_clearance', 'acw_sc__v2', '__cf_bm', 'cf_clearance',
+      '__51la', '_horizon', 'HORIZON', 'SERVERID', 'BIGipServer', 'wsc_', 'XSRF', 'csrf', '_csrf',
+      's_v_web_id', 'msToken', 'ttwid', '__ac_nonce', '__ac_signature', 'ab_sr', 'ssxmod_itna',
+      'noads_', 'statistic', 'monitor', '__root_domain_v', 'client_id', 'device_id', 'visitor_id',
+      'accept_language', 'lang', 'locale', 'theme', 'resolution', 'timezone',
+      // 通用「会话容器」ID：Java / .NET / PHP 建会话时游客就会拿到，
+      // 只能证明「来过」，不能证明「登录了」。顺企网、八方资源网这类老后台尤其常见。
+      'JSESSIONID', 'ASP.NET_SessionId', 'PHPSESSID',
+    ].join('|') +
+    ')',
+  'i'
+)
+
+/** Cookie 名里出现这些词，几乎可以肯定与会话/身份有关 */
+const SESSION_NAME_HINT = /session|token|auth|login|user|uid|member|account|vip|passport|ticket|credential/i
+
+/** 一次 Cookie 查询的目标：URL（精确）或站点主域（需要应用层校验子域） */
+interface CookieTarget {
+  value: string
+  isDomain: boolean
+}
+
+/**
  * 页面驱动发布适配器基类
  */
 export abstract class PagePublishAdapter extends CodeAdapter {
@@ -548,11 +591,16 @@ export abstract class PagePublishAdapter extends CodeAdapter {
   }
 
   /**
-   * 登录态检测：按「会发送到创作者后台的 Cookie」判断
+   * 登录态检测：三级判定，从严到宽
    *
-   * 必须用 origin/URL 去查，而不是域名。登录 Cookie（如头条的 `sessionid`）
-   * 通常写在父域 `.toutiao.com` 上，按子域 `mp.toutiao.com` 查 domain 会漏掉，
-   * 表现为「明明登录了，扩展一直显示未登录」。
+   * 1. 按平台已知的登录 Cookie 名精确命中（最可靠）
+   * 2. 再按站点主域查一次（登录态常写在父域，如 `.jiemian.com`）
+   * 3. 兜底：站点下存在 httpOnly 会话 Cookie（排除统计/反爬名单）
+   *
+   * 第 3 级是为了「真的登录了但 Cookie 名对不上」这类平台 —— 它们的登录
+   * Cookie 名字随版本改（企鹅号的 p_uin / p_skey，顺企网的会员票据），
+   * 靠白名单猜永远是滞后的。放宽到会话 Cookie 后，用户不会再被
+   * 「明明登录了却显示未登录」卡住；万一真误判，发布会返回 needs_login 兜底。
    */
   async checkAuth(): Promise<AuthResult> {
     if (!this.requiresAuth) {
@@ -561,34 +609,102 @@ export abstract class PagePublishAdapter extends CodeAdapter {
     }
 
     const editorUrl = this.pageConfig.editorUrl
+    const loginUrl = this.pageConfig.loginUrl ?? editorUrl
     try {
-      const cookies = await this.runtime.cookies.get(editorUrl)
-      const hit = cookies.find(c => this.sessionCookieNames.includes(c.name) && c.value)
-      if (hit) {
-        return { isAuthenticated: true, username: undefined }
+      const targets = this.cookieTargets()
+
+      if (await this.findNamedCookie(targets)) {
+        return { isAuthenticated: true }
       }
 
-      // 兜底：再按站点主域查一次（个别平台把登录态写在兄弟子域上）
-      const host = new URL(editorUrl).hostname
-      const parts = host.split('.')
-      if (parts.length > 2) {
-        const rootDomain = parts.slice(-2).join('.')
-        const rootCookies = await this.runtime.cookies.get(rootDomain)
-        const rootHit = rootCookies.find(
-          c => this.sessionCookieNames.includes(c.name) && c.value
-        )
-        if (rootHit) {
-          return { isAuthenticated: true, username: undefined }
-        }
+      const inferred = await this.findSessionCookie(targets)
+      if (inferred) {
+        logger.debug(`[${this.meta.id}] 未命中已知 Cookie 名，按会话 Cookie 推断为已登录：${inferred}`)
+        return { isAuthenticated: true }
       }
 
       return {
         isAuthenticated: false,
-        error: `未检测到${this.meta.name}登录态，请先在浏览器打开 ${new URL(editorUrl).origin} 完成登录，再点「重新检测」`,
+        error: `未检测到${this.meta.name}登录态，请先在浏览器打开 ${new URL(loginUrl).origin} 完成登录，再点「重新检测」`,
       }
     } catch (error) {
       return { isAuthenticated: false, error: (error as Error).message }
     }
+  }
+
+  /**
+   * 要查 Cookie 的目标：编辑器地址、登录页地址，以及各自的站点主域
+   *
+   * 子域和父域的 Cookie 是分开存的，`chrome.cookies.getAll({ domain })`
+   * 只认纯域名，所以主域单独作为一项传下去（运行时自己判断 URL / 域名）。
+   */
+  private cookieTargets(): CookieTarget[] {
+    const raw = [this.pageConfig.editorUrl, this.pageConfig.loginUrl ?? this.pageConfig.editorUrl]
+    const out: CookieTarget[] = []
+    const seen = new Set<string>()
+    for (const url of raw) {
+      if (!seen.has(url)) {
+        seen.add(url)
+        out.push({ value: url, isDomain: false })
+      }
+      try {
+        const parts = new URL(url).hostname.split('.')
+        if (parts.length > 2) {
+          const root = parts.slice(-2).join('.')
+          if (!seen.has(root)) {
+            seen.add(root)
+            out.push({ value: root, isDomain: true })
+          }
+        }
+      } catch {
+        // 地址写错时忽略，交给下面的 Cookie 查询自然失败
+      }
+    }
+    return out
+  }
+
+  /**
+   * 按域名查回来的 Cookie 是否真的属于目标站点
+   *
+   * `chrome.cookies.getAll({ domain: 'qq.com' })` 会把**所有子域**的 Cookie 一起返回：
+   * 查询 `qq.com` 能拿到 `mp.weixin.qq.com` 的 `ua_id`，于是企鹅号在没登录的机器上
+   * 也会显示「已登录」。所以域名查询的结果必须在应用层再校验一次：只认该域本身
+   * （`example.com` / `.example.com`），子域的 Cookie 是别的站点，一律不算。
+   *
+   * URL 查询不用校验 —— Chrome 只会返回「真的会发给这个地址」的 Cookie，父域是包含的。
+   */
+  private acceptsCookie(cookieDomain: string, target: CookieTarget): boolean {
+    if (!target.isDomain) return true
+    return cookieDomain.replace(/^\./, '') === target.value
+  }
+
+  /** 第 1、2 级：平台声明的登录 Cookie 名 */
+  private async findNamedCookie(targets: CookieTarget[]): Promise<string | null> {
+    for (const target of targets) {
+      const cookies = await this.runtime.cookies.get(target.value)
+      const hit = cookies.find(
+        c => c.value && this.acceptsCookie(c.domain, target) && this.sessionCookieNames.includes(c.name)
+      )
+      if (hit) return hit.name
+    }
+    return null
+  }
+
+  /** 第 3 级：会话 Cookie 兜底（httpOnly 优先，其次名字带会话关键词） */
+  private async findSessionCookie(targets: CookieTarget[]): Promise<string | null> {
+    const now = Date.now() / 1000
+    for (const target of targets) {
+      const cookies = await this.runtime.cookies.get(target.value)
+      const hit = cookies.find(c => {
+        if (!c.value) return false
+        if (!this.acceptsCookie(c.domain, target)) return false
+        if (c.expirationDate && c.expirationDate < now) return false
+        if (NON_SESSION_COOKIE.test(c.name)) return false
+        return c.httpOnly || SESSION_NAME_HINT.test(c.name)
+      })
+      if (hit) return hit.name
+    }
+    return null
   }
 
   /**
@@ -600,6 +716,7 @@ export abstract class PagePublishAdapter extends CodeAdapter {
       requiresAuth: this.requiresAuth,
       authCookieNames: this.sessionCookieNames,
       entryUrl: this.pageConfig.editorUrl,
+      loginUrl: this.pageConfig.loginUrl,
       entryUrlMatch: this.pageConfig.editorUrlMatch,
       mode: this.pageConfig.mode ?? 'editor',
       titleSelectors: this.pageConfig.titleSelectors,

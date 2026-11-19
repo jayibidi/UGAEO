@@ -23,7 +23,6 @@ export const PLATFORM_ICON_FILES: Record<string, string> = {
   'jianshu': 'jianshu.ico',
   'jiemian': 'jiemian.ico',
   'juejin': 'juejin.png',
-  'kr36': 'kr36.png',
   'kuaidong': 'kuaidong.png',
   'netease': 'netease.ico',
   'oschina': 'oschina.ico',

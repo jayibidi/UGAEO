@@ -1,10 +1,10 @@
 /**
  * 资讯门户类适配器（新增）
  *
- * 这五家都只有网页创作者后台，没有对外开放的发布 API，
+ * 这四家都只有网页创作者后台，没有对外开放的发布 API，
  * 接口层还带风控，因此在页面上下文里填内容 —— 复用 PagePublishAdapter。
  *
- * 平台：网易号、企鹅号、36氪、虎嗅、界面新闻
+ * 平台：网易号、企鹅号、虎嗅、界面新闻
  *
  * 选择器策略：先写各自后台已知的结构，末尾一律补通用兜底
  * （contenteditable / textarea）。平台改版时兜底项通常还能命中；
@@ -63,6 +63,10 @@ export class NeteaseAdapter extends PagePublishAdapter {
 /**
  * 企鹅号（腾讯新闻 / 腾讯内容开放平台）
  * 后台：om.qq.com
+ *
+ * 登录态是腾讯通行证（`.qq.com` 域），Cookie 名随登录方式变：
+ * QQ 登录写 `p_uin` / `p_skey`，微信登录写 `wxuin` / `wxsid`，
+ * 老版本才是 `uin` / `skey`。全列上，漏一个就会「已登录却显示未登录」。
  */
 export class TencentOmAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -76,43 +80,35 @@ export class TencentOmAdapter extends PagePublishAdapter {
   protected readonly pageConfig: PagePublishConfig = {
     editorUrlMatch: 'articleEdit',
     editorUrl: 'https://om.qq.com/article/articleEdit',
+    loginUrl: 'https://om.qq.com',
     titleSelectors: [...COMMON_TITLES, '.article-title textarea', '.title-box input'],
     editorSelectors: [...COMMON_EDITORS, '.article-content', '.editor-content'],
     publishTexts: ['发布', '发表', '提交'],
     extraWaitMs: 2000,
   }
 
-  protected readonly sessionCookieNames = ['om_cookie', 'om_uid', 'eas_sid', 'uin', 'skey']
-}
-
-/**
- * 36氪 · 氪号
- * 申请入驻制，通过后在创作者后台发布
- */
-export class Kr36Adapter extends PagePublishAdapter {
-  readonly meta: PlatformMeta = {
-    id: 'kr36',
-    name: '36氪',
-    icon: 'https://www.36kr.com/favicon.ico',
-    homepage: 'https://www.36kr.com/creator',
-    capabilities: ['article', 'draft', 'publish', 'image_upload'],
-  }
-
-  protected readonly pageConfig: PagePublishConfig = {
-    editorUrlMatch: '/creator/',
-    editorUrl: 'https://www.36kr.com/creator/article/publish',
-    titleSelectors: [...COMMON_TITLES, '.publish-title input', '.article-title input'],
-    editorSelectors: [...COMMON_EDITORS, '.publish-editor', '.article-editor'],
-    publishTexts: ['发布', '提交审核', '发表'],
-    extraWaitMs: 2000,
-  }
-
-  protected readonly sessionCookieNames = ['krt_uid', 't_uid', 't_token', 'identity']
+  protected readonly sessionCookieNames = [
+    'om_cookie',
+    'om_uid',
+    'om_session',
+    'eas_sid',
+    'uin',
+    'skey',
+    'p_uin',
+    'p_skey',
+    'pt2gguin',
+    'ptui_loginuin',
+    'luin',
+    'lskey',
+    'RK',
+    'wxuin',
+    'wxsid',
+  ]
 }
 
 /**
  * 虎嗅 · 虎嗅号
- * 申请入驻制，审核较严，发布后编辑择优推荐
+ * 后台：mp.huxiu.com（申请入驻制，审核较严，发布后编辑择优推荐）
  */
 export class HuxiuAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -124,38 +120,57 @@ export class HuxiuAdapter extends PagePublishAdapter {
   }
 
   protected readonly pageConfig: PagePublishConfig = {
-    editorUrlMatch: 'article',
+    editorUrlMatch: 'mp.huxiu.com',
     editorUrl: 'https://mp.huxiu.com/article/publish',
+    loginUrl: 'https://mp.huxiu.com',
     titleSelectors: [...COMMON_TITLES, '.article-title input', '.title-wrap input'],
     editorSelectors: [...COMMON_EDITORS, '.article-content', '.editor-wrap'],
     publishTexts: ['发布', '提交', '发表'],
     extraWaitMs: 2000,
   }
 
-  protected readonly sessionCookieNames = ['huxiu_web_session', 'hxsuid', 'springsid', 'huxiu_session']
+  protected readonly sessionCookieNames = [
+    'huxiu_web_session',
+    'huxiu_session',
+    'huxiu_user',
+    'hxsuid',
+    'hxuid',
+    'springsid',
+  ]
 }
 
 /**
  * 界面新闻 · 界面号
- * 申请制（财经号需公众号运营满 30 天），后台投稿后仍经编辑审核
+ *
+ * 登录在门户 `www.jiemian.com`，投稿后台在 `a.jiemian.com`（作者中心），
+ * 两者不同主机、Cookie 不共享 —— 只查后台域会一直判成未登录。
+ * 申请制（财经号需公众号运营满 30 天），后台投稿后仍经编辑审核。
  */
 export class JiemianAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
     id: 'jiemian',
     name: '界面新闻',
     icon: 'https://www.jiemian.com/favicon.ico',
-    homepage: 'https://jmedia.jiemian.com',
+    homepage: 'https://www.jiemian.com',
     capabilities: ['article', 'draft', 'publish', 'image_upload'],
   }
 
   protected readonly pageConfig: PagePublishConfig = {
-    editorUrlMatch: 'publish',
-    editorUrl: 'https://jmedia.jiemian.com/article/publish',
+    editorUrlMatch: 'a.jiemian.com',
+    editorUrl: 'https://a.jiemian.com/index.php?m=writer&a=submission',
+    loginUrl: 'https://www.jiemian.com',
     titleSelectors: [...COMMON_TITLES, '.article-title input', '.publish-title input'],
     editorSelectors: [...COMMON_EDITORS, '.editor-content', '.article-content'],
     publishTexts: ['发布', '投稿', '提交'],
     extraWaitMs: 2000,
   }
 
-  protected readonly sessionCookieNames = ['jmediasession', 'JSESSIONID', 'jiemian_user', 'jmedia_token']
+  protected readonly sessionCookieNames = [
+    'jmediasession',
+    'jiemian_user',
+    'jmedia_token',
+    'jm_user',
+    'jmtoken',
+    'jm_uid',
+  ]
 }

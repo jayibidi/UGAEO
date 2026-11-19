@@ -166,6 +166,8 @@ export interface AdapterDiagnostics {
   authCookieNames: string[]
   /** 入口页 / 编辑器页地址 */
   entryUrl?: string
+  /** 登录页地址（与入口不同主机时才有值，登录态从这里查） */
+  loginUrl?: string
   /** 用来判断「这个 tab 是不是入口页」的 URL 片段 */
   entryUrlMatch?: string
   /** 编辑器形态：editor 能自助发布，submission 只能人工提交 */

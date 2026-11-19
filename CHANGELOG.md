@@ -1,3 +1,55 @@
+## v2.8.1 (2026-11-20)
+
+这一版只改「平台接入信息」和「登录态检测」，不动同步链路。
+
+### 修：明明登录了，扩展一直显示未登录
+
+企鹅号、虎嗅、界面新闻、顺企网都报这个。原因不是 Cookie 没带，而是**判定的目标错了**：
+
+- 登录 Cookie 常常写在门户主域或另一台主机上，创作者后台的域上根本没有。
+  界面新闻登录在 `www.jiemian.com`，投稿后台在 `a.jiemian.com`；只查后台域永远是空。
+- 平台的登录 Cookie 名会随版本改（企鹅号 QQ 登录写 `p_uin` / `p_skey`，微信登录写
+  `wxuin` / `wxsid`，老版本才是 `uin` / `skey`），靠白名单猜永远滞后一拍。
+
+检测改成三级，从严到宽：
+
+1. 平台声明的登录 Cookie 名精确命中；
+2. 再按站点主域查一次（登录态写在 `.example.com` 这类父域上）；
+3. 兜底：站点下存在 httpOnly 会话 Cookie，且不在「统计 / 反爬 / 通用会话 ID」名单里。
+
+第 3 级专门接「真的登录了但名字对不上」的情况。统计与风控 Cookie（`_ga`、`Hm_lvt_*`、
+`__jsluid_h`、`acw_sc__v2`、`__cf_bm`、`ttwid` 等）以及 Java/.NET/PHP 的通用会话 ID
+（`JSESSIONID`、`ASP.NET_SessionId`、`PHPSESSID`，游客也有）一律排除，不会把没登录
+的人显示成已登录。万一真误判，发布链路会返回「需要先登录」兜底，不会静默失败。
+
+新增 `loginUrl`：登录页与后台不同主机时单独声明，错误提示里的地址换成它能真正登录的那个
+（以前提示「打开 a.jiemian.com 登录」，那儿根本没有登录入口）。
+
+登录缓存 key 升到 `authCache:v3`，旧结论立即失效，不用等 5 分钟。
+
+### 改：平台地址与入口
+
+| 平台 | 改动 |
+|---|---|
+| **36氪** | **移除**（不在维护，避免给用户一个永远填不进去的入口） |
+| 虎嗅 | 入口与登录页统一到 `https://mp.huxiu.com`；判断编辑器 tab 的匹配串收紧为域名，不再误命中含 `article` 的任意页面 |
+| 界面新闻 | 「去登录」改为 `https://www.jiemian.com`（门户，有登录入口）；投稿后台改为 `https://a.jiemian.com/index.php?m=writer&a=submission`；去掉 `JSESSIONID` 这种游客也有的判定依据 |
+| 顺企网 | 登录检测补会员票据 Cookie，去掉 `ASP.NET_SessionId`（游客也有）；提示里的地址固定到 `https://www.11467.com` |
+| **InfoQ 中文站** | 不再谎报「无需登录」：改为需要登录，入口直达写作社区创作台 `https://xie.infoq.cn/application`，首页点「写点什么」即可新建文章 |
+
+### 口径
+
+平台数 **34 → 33**：可直发 15 / 仅草稿 18（另有 Markdown 压缩包是本地导出工具，不参与分层）。
+README、平台分类、自检文档与 CLI 提示同步更新。
+
+### 测试
+
+- 新增 `page-publish-auth.test.ts`（12 例）：父域兜底、loginUrl 跨主机查询、会话 Cookie 兜底、
+  统计/反爬/通用会话 ID 排除、过期 Cookie、空值 Cookie、InfoQ 不再是 public，
+  以及「查主域不能把子域 Cookie 算进来」（`qq.com` 会带出 `mp.weixin.qq.com` 的 `ua_id`，
+  不拦住的话没登录的机器也会显示企鹅号已登录）。
+- core 125 例 / extension 151 例全部通过，`pnpm typecheck` 通过。
+
 ## v2.8.0 (2026-11-18)
 
 ### 新增：按平台规则自动适配标题（规则兜底 + AI 改写）

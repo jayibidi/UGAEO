@@ -43,6 +43,9 @@ const LEGACY_TITLES = [
 /**
  * 顺企网
  * 免费注册企业账号，会员中心可发企业资讯
+ *
+ * 登录票据在会员中心（`my.11467.com`），和门户不是同一个主机；
+ * `ASP.NET_SessionId` 游客也有，所以不能拿它当登录凭证（已在基类排除名单里）。
  */
 export class ShunqiAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -56,13 +59,21 @@ export class ShunqiAdapter extends PagePublishAdapter {
   protected readonly pageConfig: PagePublishConfig = {
     editorUrlMatch: '11467.com',
     editorUrl: 'https://www.11467.com/',
+    loginUrl: 'https://www.11467.com',
     titleSelectors: LEGACY_TITLES,
     editorSelectors: LEGACY_EDITORS,
     publishTexts: ['发布', '提交', '发表', '保存'],
     extraWaitMs: 1000,
   }
 
-  protected readonly sessionCookieNames = ['ASP.NET_SessionId', '11467_user', 'qy_user']
+  protected readonly sessionCookieNames = [
+    '11467_user',
+    'shunqi_user',
+    'qy_user',
+    'member_id',
+    'member_token',
+    '11467_token',
+  ]
 }
 
 /**
@@ -80,13 +91,14 @@ export class BafangAdapter extends PagePublishAdapter {
   protected readonly pageConfig: PagePublishConfig = {
     editorUrlMatch: 'b2b168.com',
     editorUrl: 'https://member.b2b168.com/',
+    loginUrl: 'https://www.b2b168.com',
     titleSelectors: LEGACY_TITLES,
     editorSelectors: LEGACY_EDITORS,
     publishTexts: ['发布', '提交', '发表', '保存'],
     extraWaitMs: 1000,
   }
 
-  protected readonly sessionCookieNames = ['ASP.NET_SessionId', 'b2b168user', 'b2b_user']
+  protected readonly sessionCookieNames = ['b2b168user', 'b2b_user', 'b2b168_token']
 }
 
 /**
@@ -104,11 +116,12 @@ export class Huangye88Adapter extends PagePublishAdapter {
   protected readonly pageConfig: PagePublishConfig = {
     editorUrlMatch: 'huangye88.com',
     editorUrl: 'https://my.huangye88.com/',
+    loginUrl: 'https://my.huangye88.com',
     titleSelectors: LEGACY_TITLES,
     editorSelectors: LEGACY_EDITORS,
     publishTexts: ['发布', '提交', '发表', '保存'],
     extraWaitMs: 1000,
   }
 
-  protected readonly sessionCookieNames = ['PHPSESSID', 'huangye88_user', 'hy88_user']
+  protected readonly sessionCookieNames = ['huangye88_user', 'hy88_user', 'huangye88_token']
 }

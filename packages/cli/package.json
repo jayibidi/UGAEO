@@ -1,6 +1,6 @@
 {
   "name": "@ugaeo/cli",
-  "version": "2.8.0",
+  "version": "2.8.1",
   "description": "UGAEO CLI - 命令行同步文章到多个平台",
   "main": "dist/index.js",
   "bin": {

@@ -55,8 +55,8 @@ describe('平台筛选', () => {
     expect(locked).toEqual([])
   })
 
-  it('存为草稿模式：34 个平台一个不少，本地导出工具不算', () => {
-    // 立即发布 9 个 / 储草稿全量 34 个 是产品口径，这里锁死
+  it('存为草稿模式：33 个平台一个不少，本地导出工具不算', () => {
+    // 立即发布 9 个 / 储草稿全量 33 个 是产品口径，这里锁死
     const many = [
       ...Array.from({ length: 9 }, (_, i) => platform({ id: `pub${i}`, capabilities: ['article', 'draft', 'publish'] })),
       ...Array.from({ length: 25 }, (_, i) => platform({ id: `drf${i}`, capabilities: ['article', 'draft'] })),

@@ -136,9 +136,10 @@ export function getPlatformPreprocessConfigs(platformIds: string[]) {
 }
 
 // 缓存配置
-// v2：2.4.1 起缓存里多了 authMode（区分「无需登录」与「已登录」），
-// key 升版让旧缓存立即失效，否则老用户要等 TTL 到期才会看到正确文案
-const AUTH_CACHE_KEY = 'authCache:v2'
+// v3：2.8.1 起登录检测多了「会话 Cookie 兜底」与 loginUrl 查询，
+// 旧缓存里存的是按老逻辑算出来的结论（InfoQ 还标着「无需登录」），
+// key 升版让它们立即失效，否则用户要等 5 分钟 TTL 才看到正确状态。
+const AUTH_CACHE_KEY = 'authCache:v3'
 const AUTH_CACHE_TTL_AUTHENTICATED = 5 * 60 * 1000 // 已登录：5 分钟缓存
 const AUTH_CACHE_TTL_UNAUTHENTICATED = 30 * 1000 // 未登录：30 秒缓存（用户可能随时登录）
 const AUTH_CHECK_CONCURRENCY = 8 // 并行检查数量（平台数已增至 35，5 会让首轮检测明显偏慢）

@@ -75,38 +75,49 @@ export class IthomeAdapter extends PagePublishAdapter {
 }
 
 /**
- * InfoQ 中文站
+ * InfoQ 中文站（写作社区 xie.infoq.cn）
  *
- * /contribute 是「深度文章投稿」介绍页，整页只有文案和跳转按钮，没有任何输入框
- * （实测 HTML 里 0 个 input / textarea）。真正的稿件要走他们的作者申请流程。
+ * `www.infoq.cn/contribute` 只是「深度文章投稿」介绍页，整页没有输入框；
+ * 真正能发文章的是写作社区 `xie.infoq.cn`：注册作者后在首页点「写点什么」，
+ * 创作台在 `/application`。所以入口直连创作台，不再指向门户的介绍页。
  *
- * 同样标 manualOnly：开页 + 说明，不做无意义的注入。
+ * 仍需登录（企业号 / 作者账号），以前标成「无需登录」是错的：
+ * 未登录时打开只会被弹回登录页，用户以为插件坏了。
+ *
+ * 编辑器的 DOM 结构未确认，因此保持 manualOnly：打开创作台 + 说明操作路径，
+ * 不拿通用选择器盲填（填进搜索框那种「看着成功」比失败更糟）。
  */
 export class InfoqAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
     id: 'infoq',
     name: 'InfoQ 中文站',
     icon: 'https://www.infoq.cn/favicon.ico',
-    homepage: 'https://www.infoq.cn',
+    homepage: 'https://xie.infoq.cn',
     capabilities: ['article', 'draft'],
   }
-
-  protected readonly requiresAuth = false
 
   protected readonly pageConfig: PagePublishConfig = {
     mode: 'submission',
     manualOnly: true,
-    editorUrlMatch: 'infoq.cn/contribute',
-    editorUrl: 'https://www.infoq.cn/contribute',
+    editorUrlMatch: 'xie.infoq.cn',
+    editorUrl: 'https://xie.infoq.cn/application',
+    loginUrl: 'https://xie.infoq.cn',
     titleSelectors: SUBMIT_TITLES,
     editorSelectors: SUBMIT_EDITORS,
-    publishTexts: ['提交', '投稿'],
+    publishTexts: ['提交', '投稿', '发布'],
   }
 
-  protected readonly sessionCookieNames: string[] = []
+  protected readonly sessionCookieNames = [
+    'infoq_token',
+    'infoq_user',
+    'infoq_session',
+    'xie_user',
+    'access_token',
+    'user_token',
+  ]
 
   protected manualMessage(): string {
-    return 'InfoQ 中文站的投稿页是说明页（没有在线编辑器），稿件需要走作者申请/编辑约稿：已打开页面，正文请人工投递。'
+    return '已打开 InfoQ 写作社区创作台。点首页右上角「写点什么」新建文章，把正文粘贴进去后发布；扩展不盲填未知结构的编辑器。'
   }
 }
 
