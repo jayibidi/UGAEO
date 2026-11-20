@@ -29,7 +29,7 @@ const LOCAL_TOOLS = new Set(['zip-download'])
 
 describe('适配器清单', () => {
   it('平台数量与 id 唯一性', () => {
-    expect(adapters.length).toBeGreaterThanOrEqual(34)
+    expect(adapters.length).toBeGreaterThanOrEqual(33)
     expect(new Set(ids).size).toBe(ids.length)
   })
 

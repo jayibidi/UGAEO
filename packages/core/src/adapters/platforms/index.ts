@@ -27,7 +27,7 @@ import { ToutiaoAdapter } from './toutiao'
 import { XiaohongshuAdapter } from './xiaohongshu'
 import { NeteaseAdapter, TencentOmAdapter, HuxiuAdapter, JiemianAdapter } from './news-portals'
 import { JianshuAdapter, SmzdmAdapter, BaiduZhidaoAdapter } from './content-communities'
-import { ShunqiAdapter, BafangAdapter, Huangye88Adapter } from './b2b-directory'
+import { BafangAdapter, Huangye88Adapter } from './b2b-directory'
 import { IthomeAdapter, InfoqAdapter, KuaidongAdapter } from './submission-draft'
 
 export {
@@ -59,7 +59,6 @@ export {
   JianshuAdapter,
   SmzdmAdapter,
   BaiduZhidaoAdapter,
-  ShunqiAdapter,
   BafangAdapter,
   Huangye88Adapter,
   IthomeAdapter,
@@ -105,7 +104,6 @@ export const BUILT_IN_ADAPTERS: AdapterConstructor[] = [
   JianshuAdapter,
   SmzdmAdapter,
   BaiduZhidaoAdapter,
-  ShunqiAdapter,
   BafangAdapter,
   Huangye88Adapter,
   IthomeAdapter,

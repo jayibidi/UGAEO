@@ -1,9 +1,9 @@
 /**
  * B2B 企业黄页适配器（新增）
  *
- * 平台：顺企网（11467.com）、八方资源网（b2b168.com）、黄页88（huangye88.com）
+ * 平台：八方资源网（b2b168.com）、黄页88（huangye88.com）
  *
- * 这三家的发布后台都是十几年前的模板结构（table 布局 + textarea + iframe 编辑器），
+ * 这两家的发布后台都是十几年前的模板结构（table 布局 + textarea + iframe 编辑器），
  * 没有富文本 API，也不带复杂签名，所以能填但选择器必须写得非常宽松。
  *
  * 内容定位：发的是「企业信息 + 企业资讯」，价值在于让企业主体被搜索引擎收录，
@@ -39,52 +39,6 @@ const LEGACY_TITLES = [
   'input[name="subject"]',
   'input[name="art_title"]',
 ]
-
-/**
- * 顺企网
- * 免费注册企业账号，会员中心可发企业资讯
- *
- * 登录体系在 `shunqi.com`，内容站在 `11467.com` —— 两个域名互不相干，
- * 只查 11467 永远查不到登录票据，这是「明明登录了却显示未登录」的真正原因。
- * 会话是 ASP.NET Session，浏览器里只留一个游客也有的 `ASP.NET_SessionId`，
- * 所以登录态只能实测：打开门户看有没有被顶掉。
- */
-export class ShunqiAdapter extends PagePublishAdapter {
-  readonly meta: PlatformMeta = {
-    id: 'shunqi',
-    name: '顺企网',
-    icon: 'https://www.11467.com/favicon.ico',
-    homepage: 'https://www.11467.com',
-    capabilities: ['article', 'draft', 'publish'],
-  }
-
-  protected readonly pageConfig: PagePublishConfig = {
-    editorUrlMatch: '11467.com',
-    editorUrl: 'https://www.11467.com/',
-    loginUrl: 'https://shunqi.com',
-    authHosts: ['shunqi.com', '11467.com'],
-    // 账号体系在 shunqi.com，直接测那里：访客看到的是登录页（含「免费注册」），
-    // 登录后是会员中心（含「退出」「管理中心」）。测不出来就交回 Cookie 判定。
-    authProbe: {
-      url: 'https://shunqi.com/',
-      authTexts: ['退出', '我的顺企', '管理中心', '会员中心'],
-      guestTexts: ['免费注册'],
-    },
-    titleSelectors: LEGACY_TITLES,
-    editorSelectors: LEGACY_EDITORS,
-    publishTexts: ['发布', '提交', '发表', '保存'],
-    extraWaitMs: 1000,
-  }
-
-  protected readonly sessionCookieNames = [
-    '11467_user',
-    'shunqi_user',
-    'qy_user',
-    'member_id',
-    'member_token',
-    '11467_token',
-  ]
-}
 
 /**
  * 八方资源网

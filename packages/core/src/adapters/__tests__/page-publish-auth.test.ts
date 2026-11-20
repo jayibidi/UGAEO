@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Cookie, RuntimeInterface } from '../../runtime/interface'
 import { ToutiaoAdapter } from '../platforms/toutiao'
 import { HuxiuAdapter, JiemianAdapter, TencentOmAdapter } from '../platforms/news-portals'
-import { ShunqiAdapter, BafangAdapter } from '../platforms/b2b-directory'
+import { BafangAdapter } from '../platforms/b2b-directory'
 import { InfoqAdapter, IthomeAdapter, KuaidongAdapter } from '../platforms/submission-draft'
 
 /** 只关心 cookie 查询的最小 runtime */
@@ -99,9 +99,9 @@ describe('页面驱动平台的登录态检测', () => {
 describe('登录态检测 · 名字对不上时的兜底', () => {
   it('Cookie 名不在白名单，但存在 httpOnly 会话 Cookie → 已登录', async () => {
     const { runtime } = createRuntime({
-      '11467.com': [cookie('member_ticket_v3', 'x', '.11467.com', { httpOnly: true })],
+      'b2b168.com': [cookie('member_ticket_v3', 'x', '.b2b168.com', { httpOnly: true })],
     })
-    const adapter = new ShunqiAdapter()
+    const adapter = new BafangAdapter()
     await adapter.init(runtime)
 
     expect((await adapter.checkAuth()).isAuthenticated).toBe(true)
@@ -109,9 +109,9 @@ describe('登录态检测 · 名字对不上时的兜底', () => {
 
   it('名字带会话关键词的非 httpOnly Cookie 也算', async () => {
     const { runtime } = createRuntime({
-      '11467.com': [cookie('qy_login_ticket', 'x', '.11467.com', { httpOnly: false })],
+      'b2b168.com': [cookie('qy_login_ticket', 'x', '.b2b168.com', { httpOnly: false })],
     })
-    const adapter = new ShunqiAdapter()
+    const adapter = new BafangAdapter()
     await adapter.init(runtime)
 
     expect((await adapter.checkAuth()).isAuthenticated).toBe(true)
@@ -119,36 +119,36 @@ describe('登录态检测 · 名字对不上时的兜底', () => {
 
   it('统计 / 反爬 / 通用会话 ID 一律不当成登录态', async () => {
     const { runtime } = createRuntime({
-      '11467.com': [
-        cookie('_ga', '1', '.11467.com', { httpOnly: false }),
-        cookie('Hm_lvt_abc', '1', '.11467.com', { httpOnly: false }),
-        cookie('__jsluid_h', '1', '.11467.com', { httpOnly: true }),
-        cookie('acw_sc__v2', '1', '.11467.com', { httpOnly: true }),
-        cookie('__cf_bm', '1', '.11467.com', { httpOnly: true }),
-        cookie('JSESSIONID', '1', '.11467.com', { httpOnly: true }),
-        cookie('ASP.NET_SessionId', '1', '.11467.com', { httpOnly: true }),
-        cookie('SERVERID', '1', '.11467.com', { httpOnly: true }),
+      'b2b168.com': [
+        cookie('_ga', '1', '.b2b168.com', { httpOnly: false }),
+        cookie('Hm_lvt_abc', '1', '.b2b168.com', { httpOnly: false }),
+        cookie('__jsluid_h', '1', '.b2b168.com', { httpOnly: true }),
+        cookie('acw_sc__v2', '1', '.b2b168.com', { httpOnly: true }),
+        cookie('__cf_bm', '1', '.b2b168.com', { httpOnly: true }),
+        cookie('JSESSIONID', '1', '.b2b168.com', { httpOnly: true }),
+        cookie('ASP.NET_SessionId', '1', '.b2b168.com', { httpOnly: true }),
+        cookie('SERVERID', '1', '.b2b168.com', { httpOnly: true }),
       ],
     })
-    const adapter = new ShunqiAdapter()
+    const adapter = new BafangAdapter()
     await adapter.init(runtime)
 
     const auth = await adapter.checkAuth()
     expect(auth.isAuthenticated).toBe(false)
-    // 顺企网的登录入口在 shunqi.com，提示必须指向那里，否则用户照着点也登不上
-    expect(auth.error).toContain('shunqi.com')
+    // 提示必须指向真正有登录入口的地址（八方的登录页是 m.b2b168.com/?pg=login）
+    expect(auth.error).toContain('b2b168.com')
   })
 
   it('过期 Cookie 不算登录态', async () => {
     const { runtime } = createRuntime({
-      '11467.com': [
-        cookie('member_ticket', 'x', '.11467.com', {
+      'b2b168.com': [
+        cookie('member_ticket', 'x', '.b2b168.com', {
           httpOnly: true,
           expirationDate: Math.floor(Date.now() / 1000) - 60,
         }),
       ],
     })
-    const adapter = new ShunqiAdapter()
+    const adapter = new BafangAdapter()
     await adapter.init(runtime)
 
     expect((await adapter.checkAuth()).isAuthenticated).toBe(false)
@@ -327,24 +327,25 @@ describe('登录态实测：靠页面判断，不靠猜 Cookie 名', () => {
     const { runtime } = createProbeRuntime({
       finalUrl: 'about:blank',
       fail: true,
-      cookies: { '11467.com': [cookie('member_ticket', 'x', '.11467.com', { httpOnly: true })] },
+      cookies: { 'b2b168.com': [cookie('member_ticket', 'x', '.b2b168.com', { httpOnly: true })] },
     })
-    const adapter = new ShunqiAdapter()
+    const adapter = new BafangAdapter()
     await adapter.init(runtime)
 
     expect((await adapter.checkAuth()).isAuthenticated).toBe(true)
   })
 
-  it('顺企网登录态写在 shunqi.com 上也能识别', async () => {
+  it('登录页与后台不同子域时，两边的 Cookie 都要查', async () => {
     const { runtime, calls } = createRuntime({
-      'shunqi.com': [cookie('shunqi_sso', 'x', '.shunqi.com', { httpOnly: true })],
+      'm.b2b168.com': [cookie('member_ticket', 'x', 'm.b2b168.com', { httpOnly: true })],
     })
-    const adapter = new ShunqiAdapter()
+    const adapter = new BafangAdapter()
     await adapter.init(runtime)
 
-    await adapter.checkAuth()
-    // 账号体系在 shunqi.com，Cookie 查询必须覆盖到它
-    expect(calls).toContain('shunqi.com')
+    expect((await adapter.checkAuth()).isAuthenticated).toBe(true)
+    // 后台是 mw.b2b168.com、登录页是 m.b2b168.com，只查后台会把登录票据漏掉
+    expect(calls.some(c => c.includes('mw.b2b168.com'))).toBe(true)
+    expect(calls.some(c => c.includes('m.b2b168.com'))).toBe(true)
   })
 })
 

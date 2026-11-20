@@ -20,7 +20,7 @@ export function canPublishExistingDraft(platform: Platform): boolean {
 /**
  * 按模式切分平台
  *
- * - draft：**全部平台**都能收草稿（33 个），未登录的先排进计划，登录后再同步；
+ * - draft：**全部平台**都能收草稿（32 个），未登录的先排进计划，登录后再同步；
  *   草稿落库不依赖自动发布接口，所以不能像以前那样只列已登录平台
  * - publish：只有「已登录 + 声明了 publish 能力」的平台可选，其余锁住并给出原因
  *

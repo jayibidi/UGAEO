@@ -22,7 +22,7 @@ import { getAISettings, isAIReady } from './ai-settings'
 
 /** 单个平台最多等多久（同步不能被模型拖住） */
 const AI_TIMEOUT_MS = 8000
-/** 一次同步最多调几次模型：33 个平台全调会等到用户以为卡死 */
+/** 一次同步最多调几次模型：32 个平台全调会等到用户以为卡死 */
 const AI_CALL_LIMIT = 8
 /** AI 并发的上限，避免被上游限流 */
 const AI_CONCURRENCY = 3

@@ -96,8 +96,8 @@ export interface PagePublishConfig {
   /**
    * 额外的登录 Cookie 所在域（可选）
    *
-   * 有的平台账号体系和内容站根本不是一个域名：顺企网的登录页在 `shunqi.com`，
-   * 内容站却是 `11467.com`。只查 editorUrl 的主域永远查不到登录票据。
+   * 有的平台账号体系和内容站根本不是一个域名：登录门户在一个域、创作者后台在
+   * 另一个域。只查 editorUrl 的主域永远查不到登录票据。
    */
   authHosts?: string[]
   /**
@@ -623,7 +623,7 @@ const NON_SESSION_COOKIE = new RegExp(
       'noads_', 'statistic', 'monitor', '__root_domain_v', 'client_id', 'device_id', 'visitor_id',
       'accept_language', 'lang', 'locale', 'theme', 'resolution', 'timezone',
       // 通用「会话容器」ID：Java / .NET / PHP 建会话时游客就会拿到，
-      // 只能证明「来过」，不能证明「登录了」。顺企网、八方资源网这类老后台尤其常见。
+      // 只能证明「来过」，不能证明「登录了」。八方资源网、黄页88 这类老后台尤其常见。
       'JSESSIONID', 'ASP.NET_SessionId', 'PHPSESSID',
     ].join('|') +
     ')',
@@ -821,7 +821,7 @@ export abstract class PagePublishAdapter extends CodeAdapter {
       }
     }
 
-    // 账号体系独立域名的平台（顺企网：登录在 shunqi.com，内容站在 11467.com）
+    // 账号体系独立域名的平台：显式声明的域按「域名」查询，并再校验归属
     for (const host of this.pageConfig.authHosts ?? []) {
       const domain = host.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/^\.+/, '')
       if (domain && !seen.has(domain)) {

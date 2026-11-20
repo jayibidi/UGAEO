@@ -93,7 +93,6 @@ export const PLATFORM_RULES: Record<string, PlatformPublishRule> = {
 
   // ── 消费 / 投稿 / B2B ──
   smzdm: { titleIdeal: [10, 25], titleStyle: '什么值得买：突出价格、型号、使用场景，务实', needImage: true },
-  shunqi: { titleIdeal: [10, 30], titleStyle: 'B2B 企业资讯：突出企业与行业价值' },
   bafang: { titleIdeal: [10, 30], titleStyle: 'B2B 企业资讯：突出产品与供给能力' },
   huangye88: { titleIdeal: [10, 30], titleStyle: 'B2B 企业资讯：突出产品与供给能力' },
 

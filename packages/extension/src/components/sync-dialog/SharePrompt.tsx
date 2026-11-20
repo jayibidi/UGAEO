@@ -3,7 +3,7 @@ import { X, Share2 } from 'lucide-react'
 import { CONSOLE_URL } from '@ugaeo/core'
 
 const STORAGE_KEY = 'share_prompt_dismissed'
-const SHARE_TEXT = `推荐一个开源免费的多平台文章同步工具，一键同步到知乎、掘金、头条、小红书等 33 个平台 ${CONSOLE_URL}`
+const SHARE_TEXT = `推荐一个开源免费的多平台文章同步工具，一键同步到知乎、掘金、头条、小红书等 32 个平台 ${CONSOLE_URL}`
 
 // 显示分享提示的里程碑次数
 const MILESTONES = [5, 20, 50]

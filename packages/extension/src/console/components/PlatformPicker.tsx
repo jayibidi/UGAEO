@@ -8,7 +8,7 @@ import { splitPlatformsByMode } from '../lib/publish-flow'
  * 平台选择器
  *
  * 两种模式看到的平台不一样，这是两个页签「行为不同」的第一层体现：
- * - 存为草稿：**全部平台**（33 个）都能收草稿，未登录的标出来，同步前先登录
+ * - 存为草稿：**全部平台**（32 个）都能收草稿，未登录的标出来，同步前先登录
  * - 立即发布：只有「已登录 + 声明了 publish 能力」的平台可选，其余锁住并说明原因
  */
 export function PlatformPicker() {

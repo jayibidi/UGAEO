@@ -55,16 +55,16 @@ describe('平台筛选', () => {
     expect(locked).toEqual([])
   })
 
-  it('存为草稿模式：33 个平台一个不少，本地导出工具不算', () => {
-    // 立即发布 9 个 / 储草稿全量 33 个 是产品口径，这里锁死
+  it('存为草稿模式：全部平台一个不少，本地导出工具不算', () => {
+    // 草稿模式 = 全部内容平台（当前 32 个）；zip-download 是本地工具，不参与
     const many = [
       ...Array.from({ length: 9 }, (_, i) => platform({ id: `pub${i}`, capabilities: ['article', 'draft', 'publish'] })),
-      ...Array.from({ length: 25 }, (_, i) => platform({ id: `drf${i}`, capabilities: ['article', 'draft'] })),
+      ...Array.from({ length: 23 }, (_, i) => platform({ id: `drf${i}`, capabilities: ['article', 'draft'] })),
       platform({ id: 'zip-download', capabilities: ['article'] }),
     ]
 
     const draft = splitPlatformsByMode(many, 'draft')
-    expect(draft.selectable).toHaveLength(34)
+    expect(draft.selectable).toHaveLength(32)
     const publish = splitPlatformsByMode(many, 'publish')
     expect(publish.selectable).toHaveLength(9)
   })

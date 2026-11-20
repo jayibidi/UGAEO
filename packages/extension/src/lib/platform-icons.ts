@@ -27,7 +27,6 @@ export const PLATFORM_ICON_FILES: Record<string, string> = {
   'netease': 'netease.ico',
   'oschina': 'oschina.ico',
   'segmentfault': 'segmentfault.jpg',
-  'shunqi': 'shunqi.ico',
   'smzdm': 'smzdm.ico',
   'sohu': 'sohu.ico',
   'tencent-om': 'tencent-om.png',

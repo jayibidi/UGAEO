@@ -18,7 +18,6 @@ import {
   JiemianAdapter,
   KuaidongAdapter,
   NeteaseAdapter,
-  ShunqiAdapter,
   SmzdmAdapter,
   TencentOmAdapter,
 } from '../platforms'
@@ -31,7 +30,6 @@ const NEW_PLATFORMS = [
   'jiemian',
   'jianshu',
   'smzdm',
-  'shunqi',
   'bafang',
   'huangye88',
   'baiduzhidao',
@@ -110,7 +108,7 @@ describe('发布层级推导', () => {
 describe('分层分组', () => {
   const platforms = [
     { id: 'ithome', name: 'IT之家', capabilities: ['article', 'draft'] },
-    { id: 'shunqi', name: '顺企网', capabilities: ['article', 'publish'] },
+    { id: 'huangye88', name: '黄页88', capabilities: ['article', 'publish'] },
     { id: 'netease', name: '网易号', capabilities: ['article', 'publish'] },
     { id: 'kuaidong', name: '快懂百科', capabilities: ['article', 'draft'] },
     { id: 'jianshu', name: '简书', capabilities: ['article', 'publish'] },
@@ -118,15 +116,15 @@ describe('分层分组', () => {
 
   it('分成两层，可直发在前', () => {
     const { direct, draft } = groupByPublishLayer(platforms)
-    expect(direct.map(p => p.id)).toEqual(['netease', 'jianshu', 'shunqi'])
+    expect(direct.map(p => p.id)).toEqual(['netease', 'jianshu', 'huangye88'])
     expect(draft.map(p => p.id)).toEqual(['ithome', 'kuaidong'])
   })
 
   it('组内按接入优先级排序，自助注册的平台排在申请制前面', () => {
     const { direct } = groupByPublishLayer(platforms)
-    // netease(10) < jianshu(12) < shunqi(30)
+    // netease(10) < jianshu(12) < huangye88(32)
     expect(direct[0].id).toBe('netease')
-    expect(direct[direct.length - 1].id).toBe('shunqi')
+    expect(direct[direct.length - 1].id).toBe('huangye88')
   })
 
   it('本地导出工具不参与平台分层', () => {
@@ -160,7 +158,6 @@ describe('新增适配器与分类表一致', () => {
     [JiemianAdapter, 'jiemian', 'direct'],
     [JianshuAdapter, 'jianshu', 'direct'],
     [SmzdmAdapter, 'smzdm', 'direct'],
-    [ShunqiAdapter, 'shunqi', 'direct'],
     [BafangAdapter, 'bafang', 'direct'],
     [Huangye88Adapter, 'huangye88', 'direct'],
     [BaiduZhidaoAdapter, 'baiduzhidao', 'draft'],
@@ -177,7 +174,7 @@ describe('新增适配器与分类表一致', () => {
     }
   })
 
-  it('层级与设计一致：9 个可直发、4 个仅草稿', () => {
+  it('层级与设计一致：8 个可直发、4 个仅草稿', () => {
     const actual = CASES.map(([Adapter, , layer]) => {
       const adapter = new (Adapter as new () => {
         meta: { id: string; capabilities: string[] }
@@ -189,7 +186,7 @@ describe('新增适配器与分类表一致', () => {
       expect(got, `${id} 层级不符`).toBe(want)
     }
     // 百度知道是问答形态、没有文章编辑器，从名单里的「可直发」降到「仅草稿」
-    expect(actual.filter(([, got]) => got === 'direct')).toHaveLength(9)
+    expect(actual.filter(([, got]) => got === 'direct')).toHaveLength(8)
     expect(actual.filter(([, got]) => got === 'draft')).toHaveLength(4)
   })
 

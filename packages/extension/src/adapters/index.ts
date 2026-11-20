@@ -137,12 +137,12 @@ export function getPlatformPreprocessConfigs(platformIds: string[]) {
 
 // 缓存配置
 // v4：2.8.2 起登录检测多了「打开页面实测」（authProbe）与 authHosts，
-// 旧缓存里存的是按老逻辑算出来的结论（顺企网/八方资源网/快懂百科都还是错的），
+// 旧缓存里存的是按老逻辑算出来的结论（八方资源网/黄页88/快懂百科都还是错的），
 // key 升版让它们立即失效，否则用户要等 5 分钟 TTL 才看到正确状态。
 const AUTH_CACHE_KEY = 'authCache:v4'
 const AUTH_CACHE_TTL_AUTHENTICATED = 5 * 60 * 1000 // 已登录：5 分钟缓存
 const AUTH_CACHE_TTL_UNAUTHENTICATED = 30 * 1000 // 未登录：30 秒缓存（用户可能随时登录）
-const AUTH_CHECK_CONCURRENCY = 8 // 并行检查数量（平台 33 个，5 会让首轮检测明显偏慢）
+const AUTH_CHECK_CONCURRENCY = 8 // 并行检查数量（平台 32 个，5 会让首轮检测明显偏慢）
 const AUTH_CHECK_TIMEOUT = 10 * 1000 // 单个平台认证检查超时：10 秒
 const PUBLISH_TIMEOUT = 10 * 60 * 1000 // 单个平台发布超时：10 分钟（包含图片上传）
 
