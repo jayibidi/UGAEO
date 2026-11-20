@@ -14,6 +14,11 @@ import type { PlatformMeta } from '../../types'
 /**
  * 简书
  * 写作页是独立的 note-editor，发布即时可见
+ *
+ * 登录态：以前把 `read_mode` 当会话 Cookie —— 那是「阅读模式」的偏好项，
+ * 游客也有，于是没登录也会显示已登录，同步时才被 sign_in 拦下来。
+ * 现在只认 `remember_user_token` / `_m7e_session_core`，并加一次实测：
+ * 访客打开 `/writer` 会被 302 到 `/sign_in`，这比猜 Cookie 名可靠。
  */
 export class JianshuAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -27,6 +32,12 @@ export class JianshuAdapter extends PagePublishAdapter {
   protected readonly pageConfig: PagePublishConfig = {
     editorUrlMatch: '/writer',
     editorUrl: 'https://www.jianshu.com/writer',
+    loginUrl: 'https://www.jianshu.com/sign_in',
+    authProbe: {
+      url: 'https://www.jianshu.com/writer',
+      guestUrlHints: ['sign_in', '/login'],
+      authTexts: ['草稿', '我的主页', '写文章'],
+    },
     titleSelectors: [
       'input[name="title"]',
       '.title-input',
@@ -43,33 +54,42 @@ export class JianshuAdapter extends PagePublishAdapter {
       'div[contenteditable="true"]',
     ],
     publishTexts: ['发布', '发布文章', '发表'],
+    draftTexts: ['存草稿', '保存草稿'],
     extraWaitMs: 3000,
   }
 
-  protected readonly sessionCookieNames = ['remember_user_token', '_m7e_session_core', 'read_mode']
+  protected readonly sessionCookieNames = ['remember_user_token', '_m7e_session_core']
 }
 
 /**
  * 什么值得买
  * 原创投稿，发布后进入审核
+ *
+ * 地址说明：`post.smzdm.com/publish/` 是 404，真正的投稿页是
+ * `post.smzdm.com/tougao/`（访客会被 302 到 zhiyou.smzdm.com 登录页，
+ * 登录后回到投稿表单）。
  */
 export class SmzdmAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
     id: 'smzdm',
     name: '什么值得买',
     icon: 'https://www.smzdm.com/favicon.ico',
-    homepage: 'https://post.smzdm.com/publish/',
+    homepage: 'https://post.smzdm.com/tougao/',
     capabilities: ['article', 'draft', 'publish', 'image_upload', 'cover'],
   }
 
   protected readonly pageConfig: PagePublishConfig = {
-    editorUrlMatch: 'publish',
-    editorUrl: 'https://post.smzdm.com/publish/',
+    editorUrlMatch: 'tougao',
+    editorUrl: 'https://post.smzdm.com/tougao/',
+    loginUrl: 'https://zhiyou.smzdm.com/user/login',
+    entryTexts: ['写文章', '原创投稿', '发布文章', '投稿'],
     titleSelectors: [
       'input[placeholder*="标题"]',
       'textarea[placeholder*="标题"]',
+      '[data-placeholder*="标题"]',
       '.title input',
       '.article-title input',
+      'input[name="title"]',
     ],
     editorSelectors: [
       '.ProseMirror',
@@ -79,7 +99,7 @@ export class SmzdmAdapter extends PagePublishAdapter {
       'textarea[name="content"]',
     ],
     publishTexts: ['发布', '提交', '发表'],
-    extraWaitMs: 2000,
+    extraWaitMs: 2500,
   }
 
   protected readonly sessionCookieNames = ['sess', 'smzdm_user_id', '__ckguid']

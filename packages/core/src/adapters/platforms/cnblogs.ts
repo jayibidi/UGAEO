@@ -24,6 +24,9 @@ export class CnblogsAdapter extends CodeAdapter {
 
   private xsrfToken: string | null = null
 
+  /** 服务端下发的请求头名（`/api/xsrf` 的 headerName，默认 X-XSRF-TOKEN） */
+  private xsrfHeader = 'X-XSRF-TOKEN'
+
   /** 博客园 API 需要的 Header 规则 */
   private readonly HEADER_RULES = [
     {
@@ -45,46 +48,76 @@ export class CnblogsAdapter extends CodeAdapter {
   ]
 
   /**
-   * 从 cookie 中获取 XSRF-TOKEN
+   * 取 CSRF 凭据
+   *
+   * 博客园的写接口是 ASP.NET Core 的 antiforgery 双要素校验：
+   * 请求头里的串来自 `GET /api/xsrf` 的 `request` 字段，
+   * 配套的 `.AspNetCore.Antiforgery.*` Cookie 由同一个响应下发（浏览器的
+   * cookie jar 会自动收下）。只凭 `XSRF-TOKEN` Cookie 去拼请求头，
+   * 服务端对不上，返回 400/403 —— 表现就是「明明登录了，却提示未登录」。
+   *
+   * 所以顺序是：先问 `/api/xsrf` 要官方串（连 headerName 一起），
+   * 拿不到再退回 Cookie（值可能是 URL 编码的，必须 decode）。
    */
   private async getXsrfToken(): Promise<string | null> {
     if (this.xsrfToken) {
       return this.xsrfToken
     }
 
+    // 1. 官方端点
     try {
-      // 先访问页面以触发 cookie 设置
-      await this.runtime.fetch('https://i.cnblogs.com/posts/edit', {
+      const response = await this.runtime.fetch('https://i.cnblogs.com/api/xsrf', {
         method: 'GET',
         credentials: 'include',
+        headers: { Accept: 'application/json' },
       })
 
-      // 使用 cookies API 获取 XSRF-TOKEN
-      if (this.runtime.getCookie) {
-        logger.debug('Trying to get XSRF-TOKEN via getCookie API...')
-
-        // 尝试不同的域名格式
-        const domains = ['i.cnblogs.com', '.cnblogs.com', 'cnblogs.com']
-        for (const domain of domains) {
-          const value = await this.runtime.getCookie(domain, 'XSRF-TOKEN')
-          logger.debug(`getCookie ${domain} result:`, value ? `${value.substring(0, 30)}...` : 'null')
-          if (value) {
-            this.xsrfToken = value
-            logger.debug('Got XSRF-TOKEN from cookies API')
-            return this.xsrfToken
+      if (response.ok) {
+        const text = await response.text()
+        try {
+          const data = JSON.parse(text) as Record<string, unknown>
+          const request = (data.request ?? data.token ?? data.xsrfToken) as string | undefined
+          const headerName = (data.headerName ?? data.header) as string | undefined
+          if (request) {
+            this.xsrfToken = request
+            if (headerName) this.xsrfHeader = headerName
+            logger.debug(`Got XSRF from /api/xsrf (header: ${this.xsrfHeader})`)
+            return request
           }
+        } catch {
+          logger.debug('/api/xsrf 返回的不是 JSON：', text.slice(0, 120))
         }
       } else {
-        logger.warn('getCookie API not available')
+        logger.debug('/api/xsrf 状态码：', response.status)
       }
-
-      logger.warn('Could not find XSRF-TOKEN')
-      return null
     } catch (error) {
-      logger.error('Failed to get XSRF-TOKEN:', error)
-      return null
+      logger.debug('/api/xsrf 请求失败：', error)
     }
+
+    // 2. 退回 Cookie
+    if (this.runtime.getCookie) {
+      const domains = ['i.cnblogs.com', '.cnblogs.com', 'cnblogs.com']
+      for (const domain of domains) {
+        const value = await this.runtime.getCookie(domain, 'XSRF-TOKEN')
+        if (!value) continue
+        let decoded = value
+        try {
+          decoded = decodeURIComponent(value)
+        } catch {
+          // 不是 URL 编码就原样用
+        }
+        this.xsrfToken = decoded
+        logger.debug(`Got XSRF-TOKEN from cookie (${domain})`)
+        return decoded
+      }
+    } else {
+      logger.warn('getCookie API not available')
+    }
+
+    logger.warn('Could not find XSRF token')
+    return null
   }
+
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -148,10 +181,11 @@ export class CnblogsAdapter extends CodeAdapter {
 
       logger.debug('Markdown after processImages:', markdown.substring(0, 200))
 
-      // 3. Build request headers
+      // 3. Build request headers（头名用服务端下发的，别写死大小写）
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'x-xsrf-token': xsrfToken,
+        Accept: 'application/json',
+        [this.xsrfHeader]: xsrfToken,
       }
 
       logger.debug('Request headers:', JSON.stringify(headers))
@@ -214,9 +248,15 @@ export class CnblogsAdapter extends CodeAdapter {
       logger.debug('Create post response:', response.status, responseText.substring(0, 300))
 
       if (!response.ok) {
-        // 检查是否是认证错误
+        // 认证类失败：让用户去重新登录，别把 403 说成「参数错误」
         if (response.status === 401 || response.status === 403) {
+          this.xsrfToken = null
           throw new Error('未登录或登录已过期，请重新登录博客园')
+        }
+        // 400 多半是 antiforgery 双要素没对上：清掉缓存的串，下次重新取
+        if (response.status === 400) {
+          this.xsrfToken = null
+          throw new Error(`创建草稿被拒（400）：CSRF 校验未通过或字段不合法 - ${responseText.slice(0, 200)}`)
         }
         throw new Error(`创建草稿失败: ${response.status} - ${responseText}`)
       }

@@ -75,10 +75,10 @@ export const PLATFORM_PROFILES: Record<string, PlatformProfile> = {
   smzdm: { kind: 'graphic', order: 13, note: '手机号自助注册，需实名；发布后审核' },
   huxiu: { kind: 'news', order: 21, note: '申请入驻，审核较严；编辑择优推荐' },
   jiemian: { kind: 'news', order: 22, note: '申请制，财经号需公众号运营满 30 天；后台投稿后仍经编辑审核' },
-  bafang: { kind: 'news', order: 31, note: '免费注册，B2B 企业资讯' },
-  huangye88: { kind: 'news', order: 32, note: '免费注册，B2B 企业资讯' },
 
   // ── 新增 · 第二层 · 仅草稿 ──
+  bafang: { kind: 'news', order: 31, note: 'B2B 供应/求购信息，多步表单（选分类→填属性），扩展只打开发布页' },
+  huangye88: { kind: 'news', order: 32, note: 'B2B 信息发布，先选四级分类再填表单，扩展只打开发布页' },
   baiduzhidao: { kind: 'graphic', order: 50, note: '问答形态，无文章编辑器；打开提问页后需人工提交' },
   ithome: { kind: 'news', order: 40, note: '投稿制，无自助发布后台，只能填入投稿表单' },
   infoq: { kind: 'news', order: 41, note: '投稿制，编辑审核后发布' },

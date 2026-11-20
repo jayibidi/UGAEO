@@ -94,6 +94,23 @@ export interface PagePublishConfig {
   /** 找不到时新建的编辑器地址 */
   editorUrl: string
   /**
+   * 备用入口（按顺序尝试）
+   *
+   * 自媒体后台的深链是最容易失效的东西：一次改版就能让
+   * `mp.163.com/article/edit.html` 变成 404（v2.8.4 就是这么坏的）。
+   * 写死一条等于把整条链路押在一次改版上，所以这里允许给多条候选：
+   * 上一条打不开或没有标题框，就换下一条，最后一条通常是「后台首页」。
+   */
+  editorUrls?: string[]
+  /**
+   * 入口文案：在后台首页里把「发布 / 写文章」这一步点出来
+   *
+   * 老后台没有稳定的深链（黄页类、企鹅号、虎嗅都是这种），
+   * 首页上只有一个「发布」按钮。找不到标题框时按这些文案点进去，
+   * 点到了真编辑器再填 —— 比直接报「未找到标题输入框」有用得多。
+   */
+  entryTexts?: string[]
+  /**
    * 额外的登录 Cookie 所在域（可选）
    *
    * 有的平台账号体系和内容站根本不是一个域名：登录门户在一个域、创作者后台在
@@ -172,6 +189,8 @@ export interface InjectedPublishPayload {
   confirmTexts: string[]
   entrySteps: string[][]
   prepareSteps: string[][]
+  /** 后台首页里把「发布 / 写文章」点出来的候选文案 */
+  entryTexts: string[]
   requireImages: boolean
   autoPublish: boolean
   waitMs: number
@@ -207,26 +226,185 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
   const norm = (value: string | null | undefined) => (value || '').replace(/\s+/g, '')
   const missing: string[] = []
 
+  /**
+   * 可见性判断
+   *
+   * 不能用 `el instanceof HTMLElement`：iframe 里的元素属于**另一个 window**，
+   * 拿主文档的构造函数去判会一律 false —— 老式后台（UEditor / ASP.NET 框架页）
+   * 的表单就在 iframe 里，正是被这一条挡在门外的。
+   */
   const isUsable = (el: Element | null): el is HTMLElement => {
-    if (!el || !(el instanceof HTMLElement)) return false
+    if (!el) return false
     const rect = el.getBoundingClientRect()
     if (rect.width < 2 || rect.height < 2) return false
-    const style = window.getComputedStyle(el)
+    const view = el.ownerDocument?.defaultView
+    if (!view) return true
+    const style = view.getComputedStyle(el as HTMLElement)
     return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
   }
 
-  /** 在候选选择器里找第一个可用元素（只查一次） */
-  const queryFirst = <T extends HTMLElement>(selectors: string[]): T | null => {
-    for (const selector of selectors) {
-      let nodes: NodeListOf<Element>
+  /** 主文档 + 同源 iframe 的文档集合（老式后台把表单放在 frame 里） */
+  const collectDocs = (): Document[] => {
+    const out: Document[] = [document]
+    const walk = (doc: Document, depth: number) => {
+      if (depth >= 2) return
+      let frames: Element[] = []
       try {
-        nodes = document.querySelectorAll(selector)
+        frames = Array.from(doc.querySelectorAll('iframe, frame'))
+      } catch {
+        return
+      }
+      for (const frame of frames) {
+        try {
+          const inner = (frame as HTMLIFrameElement).contentDocument
+          if (inner && inner.body) {
+            out.push(inner)
+            walk(inner, depth + 1)
+          }
+        } catch {
+          // 跨域 iframe 读不到，跳过
+        }
+      }
+    }
+    walk(document, 0)
+    return out
+  }
+
+  /** 在候选选择器里找第一个可用元素（只查一次，含同源 iframe） */
+  const queryFirst = <T extends HTMLElement>(selectors: string[]): T | null => {
+    const docs = collectDocs()
+    for (const selector of selectors) {
+      for (const doc of docs) {
+        let nodes: NodeListOf<Element>
+        try {
+          nodes = doc.querySelectorAll(selector)
+        } catch {
+          continue
+        }
+        for (const node of Array.from(nodes)) {
+          if (isUsable(node)) return node as T
+        }
+      }
+    }
+    return null
+  }
+
+  /**
+   * 按语义找标题框
+   *
+   * 选择器列表永远追不上改版速度（小红书长文的标题框就没有稳定的 class）。
+   * 这里换一条更耐用的判据：placeholder / data-placeholder / aria-label / name / id
+   * 里带「标题 / 题目 / title」，且不是站内搜索框，就认。
+   */
+  const findTitleByHint = (): HTMLElement | null => {
+    const HINT = /(标题|题目|title)/i
+    const NOISE = /(search|搜索|query|keyword|关键词|筛|过滤)/i
+    const scored: Array<{ el: HTMLElement; score: number }> = []
+
+    for (const doc of collectDocs()) {
+      let nodes: Element[] = []
+      try {
+        nodes = Array.from(doc.querySelectorAll('input, textarea, [contenteditable="true"]'))
       } catch {
         continue
       }
-      for (const node of Array.from(nodes)) {
-        if (isUsable(node)) return node as T
+      for (const node of nodes) {
+        const el = node as HTMLElement
+        if (!isUsable(el)) continue
+        const tag = el.tagName.toLowerCase()
+        const type = (el.getAttribute('type') || '').toLowerCase()
+        if (tag === 'input') {
+          if (['hidden', 'checkbox', 'radio', 'file', 'submit', 'button', 'password', 'email', 'tel'].includes(type)) {
+            continue
+          }
+        }
+        const signature = [
+          el.getAttribute('placeholder'),
+          el.getAttribute('data-placeholder'),
+          el.getAttribute('aria-label'),
+          el.getAttribute('name'),
+          el.getAttribute('id'),
+          typeof el.className === 'string' ? el.className : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        if (!signature || NOISE.test(signature)) continue
+        if (!HINT.test(signature)) continue
+
+        let score = 5
+        const rect = el.getBoundingClientRect()
+        // 标题一般在页面上半部分，正文在下面
+        if (rect.top < window.innerHeight * 0.6) score += 2
+        if (tag === 'input' || tag === 'textarea') score += 1
+        scored.push({ el, score })
       }
+    }
+
+    scored.sort((a, b) => b.score - a.score)
+    return scored[0]?.el ?? null
+  }
+
+  /**
+   * 按面积找正文编辑器
+   *
+   * 正文框的特征是「页面上最大的那块可编辑区域」，这比 class 名稳定得多。
+   * 排除标题框本身与站内搜索框。
+   */
+  const findEditorByHeuristic = (exclude?: HTMLElement | null): HTMLElement | null => {
+    const NOISE = /(search|搜索|query|keyword|关键词)/i
+    let best: { el: HTMLElement; area: number } | null = null
+
+    for (const doc of collectDocs()) {
+      let nodes: Element[] = []
+      try {
+        nodes = Array.from(doc.querySelectorAll('[contenteditable="true"], textarea'))
+      } catch {
+        continue
+      }
+      for (const node of nodes) {
+        const el = node as HTMLElement
+        if (exclude && (el === exclude || exclude.contains(el) || el.contains(exclude))) continue
+        if (!isUsable(el)) continue
+        const rect = el.getBoundingClientRect()
+        if (rect.height < 80) continue
+        const signature = [
+          el.getAttribute('placeholder'),
+          el.getAttribute('data-placeholder'),
+          el.getAttribute('name'),
+          el.getAttribute('id'),
+          typeof el.className === 'string' ? el.className : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        if (signature && NOISE.test(signature)) continue
+        const area = rect.width * rect.height
+        if (!best || area > best.area) best = { el, area }
+      }
+    }
+    return best?.el ?? null
+  }
+
+  /** 页面身份：报错时带上，用户一看就知道到底停在哪一页 */
+  const pageInfo = () => {
+    const title = (document.title || '').replace(/\s+/g, ' ').trim().slice(0, 40)
+    const url = location.href.slice(0, 120)
+    return title ? `「${title}」${url}` : url
+  }
+
+  /**
+   * 错误页类型
+   *
+   * 「地址失效」和「被风控拦了」是两码事：前者要改地址，后者要用户自己在
+   * 浏览器里打开确认（虎嗅后台对非常规请求直接回 403）。混成一句话会把
+   * 排查方向带偏。
+   */
+  const errorPageKind = (): 'notfound' | 'forbidden' | null => {
+    const title = (document.title || '').trim()
+    const text = (document.body?.innerText || '').trim().slice(0, 200)
+    const merged = `${title} ${text}`
+    if (/^403\b/.test(title) || /403\s*forbidden/i.test(merged)) return 'forbidden'
+    if (/^404\b/.test(title) || /404\s*not\s*found|页面不存在|页面走丢|访问的页面不存在/i.test(merged)) {
+      return 'notfound'
     }
     return null
   }
@@ -250,9 +428,12 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
   const looksLikeLogin = (): boolean => {
     const url = location.href
     if (/\/login|signin|passport|\/sso|auth\//i.test(url)) return true
-    // 页面上有可见的密码框，基本就是在等人的登录页
-    const pwd = document.querySelector<HTMLInputElement>('input[type="password"]')
-    return !!pwd && isUsable(pwd)
+    // 页面上有可见的密码框，基本就是在等人的登录页（含 iframe 里的登录框）
+    for (const doc of collectDocs()) {
+      const pwd = doc.querySelector<HTMLInputElement>('input[type="password"]')
+      if (pwd && isUsable(pwd)) return true
+    }
+    return false
   }
 
   /**
@@ -267,13 +448,23 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
       ? ['取消', '删除', '设置', '预览', '定时']
       : ['取消', '删除', '设置', '预览', '定时', '草稿', '存草']
 
-    const nodes = Array.from(
-      document.querySelectorAll<HTMLElement>('button, [role="button"], a, div, span, li')
-    ).filter(node => {
-      if (node.getAttribute('aria-disabled') === 'true') return false
-      if ((node as HTMLButtonElement).disabled) return false
-      return isUsable(node)
-    })
+    // 老后台的左侧菜单常常在 iframe 里，主文档里根本找不到「发布」两个字
+    const nodes: HTMLElement[] = []
+    for (const doc of collectDocs()) {
+      let found: Element[] = []
+      try {
+        found = Array.from(doc.querySelectorAll('button, [role="button"], a, div, span, li'))
+      } catch {
+        continue
+      }
+      for (const node of found) {
+        const el = node as HTMLElement
+        if (el.getAttribute('aria-disabled') === 'true') continue
+        if ((el as HTMLButtonElement).disabled) continue
+        if (!isUsable(el)) continue
+        nodes.push(el)
+      }
+    }
 
     /** 深度：命中同样文案的父子节点里，取最里层那个，点击才落到真正的按钮上 */
     const depthOf = (el: HTMLElement): number => {
@@ -352,16 +543,18 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
 
   /** contenteditable 的标题（少数平台把标题也做成富文本） */
   const setEditableText = (el: HTMLElement, value: string) => {
+    const doc = el.ownerDocument || document
+    const view = doc.defaultView || window
     el.focus()
-    const selection = window.getSelection()
+    const selection = view.getSelection()
     if (selection) {
-      const range = document.createRange()
+      const range = doc.createRange()
       range.selectNodeContents(el)
       selection.removeAllRanges()
       selection.addRange(range)
     }
     try {
-      document.execCommand('insertText', false, value)
+      doc.execCommand('insertText', false, value)
     } catch {
       el.textContent = value
     }
@@ -425,18 +618,42 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
   }
 
   // ── 2. 标题（轮询等待，重 SPA 经常要好几秒）──
-  const titleEl = await waitFor<HTMLInputElement | HTMLTextAreaElement>(
-    payload.titleSelectors,
-    payload.waitMs
-  )
+  let titleEl = await waitFor<HTMLElement>(payload.titleSelectors, payload.waitMs)
+  if (!titleEl) titleEl = findTitleByHint()
+
+  // ── 2b. 还停在后台首页：把「发布 / 写文章」这一步点出来 ──
+  //
+  // 很多平台的深链是不公开的、还经常改（企鹅号、虎嗅、B2B 后台都是这种），
+  // 硬拼地址只能靠运气。首页上那个「发布」按钮才是稳定入口 —— 点进去，
+  // 等真编辑器出现再填。最多点三轮：有的后台是「发布 → 图文」两级菜单。
+  if (!titleEl && payload.entryTexts.length > 0) {
+    let entryClicked = false
+    for (let round = 0; round < 3 && !titleEl; round++) {
+      const clicked = await clickByTexts(payload.entryTexts, { timeoutMs: 2500 })
+      if (!clicked) break
+      entryClicked = true
+      await sleep(2500)
+      titleEl = (await waitFor<HTMLElement>(payload.titleSelectors, 5000)) ?? findTitleByHint()
+    }
+    if (!titleEl && entryClicked) missing.push('entry')
+  }
+
   if (!titleEl) {
     if (looksLikeLogin()) {
       return { ok: false, stage: 'needs_login', message: '当前是登录页，请先登录该平台', url: location.href, finalUrl: location.href }
     }
+    const errorKind = errorPageKind()
+    const reason =
+      errorKind === 'notfound'
+        ? '编辑器地址已失效（打开的是 404 页面），该平台很可能改版了'
+        : errorKind === 'forbidden'
+          ? '打开编辑器时被平台拦截（403，多为风控），请先在浏览器里手动打开该地址确认能正常访问'
+          : `等待 ${payload.waitMs}ms 仍没找到标题输入框（可能被弹窗挡住或页面改版）`
     return {
       ok: false,
       stage: 'failed',
-      message: `等待 ${payload.waitMs}ms 仍没找到标题输入框（可能被弹窗挡住或页面改版）`,
+      // 带上真实地址与页面标题：用户反馈时不必再猜「到底停在哪一页」
+      message: `${reason}；当前页面：${pageInfo()}`,
       url: location.href,
       missing: [...missing, 'title'],
       finalUrl: location.href,
@@ -447,17 +664,18 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     setEditableText(titleEl, payload.title)
   } else {
     titleEl.focus()
-    setNativeValue(titleEl, payload.title)
+    setNativeValue(titleEl as HTMLInputElement, payload.title)
   }
   await sleep(200)
 
   // ── 3. 正文 ──
-  const rawEditor = await waitFor<HTMLElement>(payload.editorSelectors, payload.waitMs)
+  let rawEditor = await waitFor<HTMLElement>(payload.editorSelectors, Math.min(payload.waitMs, 8000))
+  if (!rawEditor) rawEditor = findEditorByHeuristic(titleEl)
   if (!rawEditor) {
     return {
       ok: false,
       stage: 'failed',
-      message: '找到了标题框但没找到正文编辑器，页面结构可能已变化',
+      message: `找到了标题框但没找到正文编辑器，页面结构可能已变化（当前页面：${pageInfo()}）`,
       url: location.href,
       missing: [...missing, 'editor'],
       finalUrl: location.href,
@@ -476,9 +694,12 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
   editor.click()
   await sleep(200)
 
+  // 编辑器可能在 iframe 里，execCommand 必须用元素自己的文档执行
+  const editorDoc = editor.ownerDocument || document
+
   // 先全选再插入：复用标签页时不会把上一次的内容留在前面造成重复
   try {
-    document.execCommand('selectAll')
+    editorDoc.execCommand('selectAll')
   } catch {
     // 忽略：不支持就算了，后面还有兜底
   }
@@ -486,7 +707,7 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
   // 优先走 execCommand（能被富文本编辑器正确接管），失败再退回 innerHTML
   let inserted = false
   try {
-    inserted = document.execCommand('insertHTML', false, payload.html)
+    inserted = editorDoc.execCommand('insertHTML', false, payload.html)
   } catch {
     inserted = false
   }
@@ -510,7 +731,14 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
 
   // ── 4. 图片 ──
   let imageCount = 0
-  const fileInput = document.querySelector<HTMLInputElement>('input[type="file"][accept*="image"]')
+  let fileInput: HTMLInputElement | null = null
+  for (const doc of collectDocs()) {
+    const found = doc.querySelector<HTMLInputElement>('input[type="file"][accept*="image"]')
+    if (found) {
+      fileInput = found
+      break
+    }
+  }
   if (fileInput && payload.images.length > 0) {
     imageCount = await uploadImages(fileInput, payload.images)
     await sleep(1500)
@@ -906,29 +1134,42 @@ export abstract class PagePublishAdapter extends CodeAdapter {
     }
 
     const autoPublish = this.shouldPublish(options)
-    const draftUrl = this.pageConfig.editorUrl
     const submissionMode = this.pageConfig.mode === 'submission'
+    const entries = this.entryUrls()
 
-    try {
-      const tabId = await this.ensureEditorTab()
-
-      // 纯人工平台：不注入内容，只把页面打开并说清楚要做什么
-      if (this.pageConfig.manualOnly) {
-        return this.createResult(true, {
-          postUrl: draftUrl,
-          draftOnly: true,
-          reviewStatus: 'unknown',
-          message: this.manualMessage(),
-        })
+    // 纯人工平台：不注入内容，只把页面打开并说清楚要做什么
+    if (this.pageConfig.manualOnly) {
+      try {
+        await this.ensureEditorTab(entries[0].url, entries[0].match, false)
+      } catch (error) {
+        logger.warn(`[${this.meta.id}] 打开发布页失败：${(error as Error).message}`)
       }
+      return this.createResult(true, {
+        postUrl: entries[0].url,
+        draftOnly: true,
+        reviewStatus: 'unknown',
+        message: this.manualMessage(),
+      })
+    }
 
-      const html = article.html || article.markdown || ''
-      const images = this.extractImages(html, article.cover)
+    const html = article.html || article.markdown || ''
+    const images = this.extractImages(html, article.cover)
 
-      logger.debug('Injecting content into tab', tabId, 'autoPublish:', autoPublish)
+    let lastFailure: InjectedPublishResult | null = null
+    let lastError: string | null = null
 
-      const result = await tabs.executeScript(tabId, injectedPublish, [
-        {
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index]
+      const isLast = index === entries.length - 1
+      let tabId: number | undefined
+      let createdByUs = false
+      try {
+        const opened = await this.ensureEditorTab(entry.url, entry.match, index > 0)
+        tabId = opened.tabId
+        // 只关自己开的标签页：复用来的可能是用户正在编辑的那个，不能动
+        createdByUs = opened.created
+
+        const result = await this.inject(tabId, {
           title: article.title,
           html,
           images,
@@ -939,71 +1180,158 @@ export abstract class PagePublishAdapter extends CodeAdapter {
           confirmTexts: this.pageConfig.confirmTexts ?? [],
           entrySteps: this.pageConfig.entrySteps ?? [],
           prepareSteps: this.pageConfig.prepareSteps ?? [],
+          entryTexts: this.pageConfig.entryTexts ?? [],
           requireImages: this.pageConfig.requireImages ?? false,
           autoPublish,
-          waitMs: this.pageConfig.waitMs ?? 12000,
-        },
-      ])
-
-      // 被踢到登录页：这不是「页面改版」，用户需要知道该去登录
-      if (result?.stage === 'needs_login') {
-        return this.createResult(false, {
-          error: result.message || `需要先登录${this.meta.name}，再重新同步`,
-          postUrl: result.finalUrl || draftUrl,
+          // 备用入口少等一会儿：前面已经用尽了主入口的等待时间，
+          // 再各等 20 秒会让一次同步卡到分钟级
+          waitMs: index === 0 ? (this.pageConfig.waitMs ?? 12000) : Math.min(this.pageConfig.waitMs ?? 12000, 8000),
         })
-      }
 
-      if (!result || result.stage === 'failed') {
-        // 投稿型平台没有统一表单，填不进去属于预期：降级为「已打开投稿页」
-        if (submissionMode) {
-          return this.createResult(true, {
-            postUrl: draftUrl,
-            draftOnly: true,
-            reviewStatus: 'unknown',
-            message: `已打开${this.meta.name}投稿页。该平台只接受投稿、没有自助发布入口，请粘贴正文后手动提交`,
+        // 被踢到登录页：换入口也没用，直接让用户去登录
+        if (result?.stage === 'needs_login') {
+          return this.createResult(false, {
+            error: result.message || `需要先登录${this.meta.name}，再重新同步`,
+            postUrl: result.finalUrl || entry.url,
           })
         }
-        return this.createResult(false, {
-          error: result?.message || '页面发布失败',
-          postUrl: draftUrl,
-        })
-      }
 
-      // 投稿型平台无论是否填入，最终都要人工提交
-      if (submissionMode) {
-        return this.createResult(true, {
-          postUrl: result.url || draftUrl,
-          draftOnly: true,
-          reviewStatus: 'unknown',
-          message:
-            result.stage === 'filled'
-              ? `内容已填入${this.meta.name}投稿表单，请补全联系方式后手动提交`
-              : result.message || '已填入投稿表单，请手动提交',
-        })
-      }
+        if (!result || result.stage === 'failed') {
+          lastFailure = result ?? null
+          // 还有备用入口 → 关掉这个没用的标签页，换下一个
+          if (!isLast && createdByUs && tabs.remove && tabId !== undefined) {
+            await tabs.remove(tabId).catch(() => undefined)
+          }
+          continue
+        }
 
-      const published = result.stage === 'published'
-      const message =
-        result.message ||
-        (published
-          ? '已发布'
-          : result.stage === 'drafted'
-            ? '内容已存入平台草稿箱'
-            : '内容已填入编辑器，请到平台确认或手动发布')
+        return this.toResult(result, entry.url, submissionMode)
+      } catch (error) {
+        lastError = this.describeTabError(error, entry.url)
+        logger.warn(`[${this.meta.id}] 入口 ${entry.url} 发布失败：${lastError}`)
+        if (!isLast && createdByUs && tabs.remove && tabId !== undefined) {
+          await tabs.remove(tabId).catch(() => undefined)
+        }
+      }
+    }
+
+    // 投稿型平台没有统一表单，填不进去属于预期：降级为「已打开投稿页」
+    if (submissionMode) {
       return this.createResult(true, {
-        postUrl: result.url || draftUrl,
-        draftOnly: !published,
-        reviewStatus: published ? 'reviewing' : 'unknown',
-        reviewStatusText: message,
-        message,
-      })
-    } catch (error) {
-      logger.error('Page publish failed:', error)
-      return this.createResult(false, {
-        error: `页面发布失败：${(error as Error).message}`,
-        postUrl: draftUrl,
+        postUrl: entries[entries.length - 1].url,
+        draftOnly: true,
+        reviewStatus: 'unknown',
+        message: `已打开${this.meta.name}投稿页。该平台只接受投稿、没有自助发布入口，请粘贴正文后手动提交`,
       })
     }
+
+    const tried = entries.length > 1 ? `（已尝试 ${entries.length} 个入口地址）` : ''
+    return this.createResult(false, {
+      error: `${lastFailure?.message || lastError || '页面发布失败'}${tried}`,
+      postUrl: entries[0].url,
+    })
+  }
+
+  /** 把注入结果翻译成同步结果（草稿 / 发布 / 投稿各一套文案） */
+  private toResult(
+    result: InjectedPublishResult,
+    fallbackUrl: string,
+    submissionMode: boolean
+  ): SyncResult {
+    // 投稿型平台无论是否填入，最终都要人工提交
+    if (submissionMode) {
+      return this.createResult(true, {
+        postUrl: result.url || fallbackUrl,
+        draftOnly: true,
+        reviewStatus: 'unknown',
+        message:
+          result.stage === 'filled'
+            ? `内容已填入${this.meta.name}投稿表单，请补全联系方式后手动提交`
+            : result.message || '已填入投稿表单，请手动提交',
+      })
+    }
+
+    const published = result.stage === 'published'
+    const message =
+      result.message ||
+      (published
+        ? '已发布'
+        : result.stage === 'drafted'
+          ? '内容已存入平台草稿箱'
+          : '内容已填入编辑器，请到平台确认或手动发布')
+    return this.createResult(true, {
+      postUrl: result.url || fallbackUrl,
+      draftOnly: !published,
+      reviewStatus: published ? 'reviewing' : 'unknown',
+      reviewStatusText: message,
+      message,
+    })
+  }
+
+  /**
+   * 在标签页里执行注入
+   *
+   * 有一种失败其实是成功：点「写文章 / 发布」后页面整页跳到了编辑器，
+   * 注入脚本的上下文被销毁，`executeScript` 抛
+   * 「Execution context was destroyed」。—— 这时页面已经换好了，
+   * 等它加载完再注入一次就行，不该报失败。
+   */
+  private async inject(tabId: number, payload: InjectedPublishPayload): Promise<InjectedPublishResult> {
+    const tabs = this.runtime.tabs!
+    try {
+      return await tabs.executeScript(tabId, injectedPublish, [payload])
+    } catch (error) {
+      const message = (error as Error).message || ''
+      if (/context was destroyed|navigat|frame was removed|cannot find context/i.test(message)) {
+        logger.debug(`[${this.meta.id}] 注入时页面正在跳转，加载完重试一次`)
+        await this.delay(2500)
+        await tabs.waitForLoad(tabId, 15000).catch(() => undefined)
+        await this.delay(1500)
+        return tabs.executeScript(tabId, injectedPublish, [payload])
+      }
+      throw error
+    }
+  }
+
+  /** 把标签页层的异常翻译成用户能看懂的一句话 */
+  private describeTabError(error: unknown, url: string): string {
+    const message = (error as Error).message || String(error)
+    // Chrome 在整页是 404 / 崩溃时，注入会直接抛这句
+    if (/showing error page|frame with id/i.test(message)) {
+      return `打开 ${url} 时页面是错误页（多半已改版或需要重新登录），换入口或稍后重试`
+    }
+    if (/cannot access|chrome:\/\//i.test(message)) {
+      return `无权在该页面注入脚本：${url}`
+    }
+    return `页面发布失败：${message}`
+  }
+
+  /**
+   * 入口候选：主地址 + 备用地址
+   *
+   * 备用入口的判断片段用「主机名 + 路径」，避免把后台首页当成
+   * 「已经打开的编辑器」直接复用 —— 首页上根本没有标题框。
+   */
+  private entryUrls(): Array<{ url: string; match: string }> {
+    const candidates = [this.pageConfig.editorUrl, ...(this.pageConfig.editorUrls ?? [])]
+    const seen = new Set<string>()
+    const out: Array<{ url: string; match: string }> = []
+
+    for (const url of candidates) {
+      if (!url || seen.has(url)) continue
+      seen.add(url)
+      let match = this.pageConfig.editorUrlMatch
+      if (url !== this.pageConfig.editorUrl) {
+        try {
+          const parsed = new URL(url)
+          match = `${parsed.hostname}${parsed.pathname}`.replace(/\/$/, '') || parsed.hostname
+        } catch {
+          // 地址写错时退回平台声明的片段
+        }
+      }
+      out.push({ url, match })
+    }
+    return out
   }
 
   /** 纯人工平台的提示文案（子类可覆盖） */
@@ -1016,24 +1344,32 @@ export abstract class PagePublishAdapter extends CodeAdapter {
    *
    * 复用已经打开的编辑器标签页，避免每次同步都堆一个新标签页。
    * 复用时旧内容不会被保留 —— 注入脚本会先全选再插入，相当于整篇覆盖。
+   *
+   * @param forceNew 备用入口一律新建：上一轮的标签页可能停在 404 或首页，
+   *                 复用只会把同一个错误再跑一遍
    */
-  private async ensureEditorTab(): Promise<number> {
+  private async ensureEditorTab(
+    url: string,
+    match: string,
+    forceNew: boolean
+  ): Promise<{ tabId: number; created: boolean }> {
     const tabs = this.runtime.tabs!
-    const pattern = `${new URL(this.pageConfig.editorUrl).origin}/*`
 
-    const existing = await tabs.query(pattern)
-    const editorTab = existing.find(tab => (tab.url || '').includes(this.pageConfig.editorUrlMatch))
-
-    if (editorTab) {
-      logger.debug('Reusing editor tab', editorTab.id)
-      return editorTab.id
+    if (!forceNew) {
+      const pattern = `${new URL(url).origin}/*`
+      const existing = await tabs.query(pattern)
+      const editorTab = existing.find(tab => (tab.url || '').includes(match))
+      if (editorTab) {
+        logger.debug('Reusing editor tab', editorTab.id)
+        return { tabId: editorTab.id, created: false }
+      }
     }
 
-    const created = await tabs.create(this.pageConfig.editorUrl, false)
-    await tabs.waitForLoad(created.id)
+    const created = await tabs.create(url, false)
+    await tabs.waitForLoad(created.id).catch(() => undefined)
     // 编辑器是 SPA，等它把表单渲染出来；重编辑器额外多等一会儿
     await this.delay(2000 + (this.pageConfig.extraWaitMs ?? 0))
-    return created.id
+    return { tabId: created.id, created: true }
   }
 
   /**

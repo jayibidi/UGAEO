@@ -36,15 +36,23 @@ export class XiaohongshuAdapter extends PagePublishAdapter {
      * 长文入口是两步：先点左侧「写长文」，再点「新的创作」。
      * 只开 publish/publish 页面是"上传视频 / 上传图文"的首页，
      * 那里根本没有标题框 —— 这正是之前一直报「未找到标题输入框」的原因。
+     *
+     * 页签的实际文案是「写长文」（发布页 JS 里的枚举名），点开后弹窗里
+     * 的按钮是「写长文笔记」，两处都留了候选。
      */
     entrySteps: [
-      ['写长文', '长文'],
-      ['新的创作', '新建创作', '开始创作', '写长文'],
+      ['写长文', '写长文笔记'],
+      ['新的创作', '新建创作', '开始创作', '写长文笔记'],
     ],
+
+    /** 入口点完之后兜底：编辑器里还找不到标题框时，再按这些文案试一次 */
+    entryTexts: ['写长文笔记', '新的创作', '开始创作'],
 
     titleSelectors: [
       'input[placeholder*="标题"]',
       'textarea[placeholder*="标题"]',
+      '[data-placeholder*="标题"]',
+      '[contenteditable="true"][data-placeholder*="标题"]',
       '.title-input input',
       '.title-input textarea',
       'input.d-text',
@@ -56,6 +64,7 @@ export class XiaohongshuAdapter extends PagePublishAdapter {
       '.ProseMirror',
       '#post-textarea',
       'textarea[placeholder*="正文"]',
+      '[data-placeholder*="正文"]',
       '.article-editor [contenteditable="true"]',
       'div[contenteditable="true"]',
     ],

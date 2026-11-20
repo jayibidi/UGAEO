@@ -184,7 +184,7 @@ describe('buildProbeChecks', () => {
         publishHit: false,
         bodyLength: 8810,
       }),
-      { ...ctx, entryUrl: 'https://mp.163.com/article/edit.html' }
+      { ...ctx, entryUrl: 'https://mp.163.com/#/article-publish' }
     )
     expect(checks.find(c => c.key === 'login')?.status).toBe('fail')
     expect(checks.find(c => c.key === 'title')?.status).toBe('skip')

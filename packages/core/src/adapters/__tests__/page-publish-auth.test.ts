@@ -3,6 +3,7 @@ import type { Cookie, RuntimeInterface } from '../../runtime/interface'
 import { ToutiaoAdapter } from '../platforms/toutiao'
 import { HuxiuAdapter, JiemianAdapter, TencentOmAdapter } from '../platforms/news-portals'
 import { BafangAdapter } from '../platforms/b2b-directory'
+import { JianshuAdapter } from '../platforms/content-communities'
 import { InfoqAdapter, IthomeAdapter, KuaidongAdapter } from '../platforms/submission-draft'
 
 /** 只关心 cookie 查询的最小 runtime */
@@ -218,6 +219,34 @@ describe('多主机平台：登录页与投稿后台分离', () => {
     const auth = await adapter.checkAuth()
     expect(auth.isAuthenticated).toBe(false)
     expect(auth.error).toContain('https://www.huxiu.com')
+  })
+
+  it('简书不再把游客也有的 read_mode 当成登录凭证', async () => {
+    const { runtime } = createRuntime({
+      'https://www.jianshu.com/writer': [
+        cookie('read_mode', 'day', '.jianshu.com'),
+        cookie('_ga', 'GA1.1', '.jianshu.com'),
+      ],
+    })
+    const adapter = new JianshuAdapter()
+    await adapter.init(runtime)
+
+    const auth = await adapter.checkAuth()
+    // read_mode 只是阅读模式偏好，任何人都有；认它会把未登录显示成已登录
+    expect(auth.isAuthenticated).toBe(false)
+  })
+
+  it('简书有 remember_user_token 时判为已登录', async () => {
+    const { runtime } = createRuntime({
+      'https://www.jianshu.com/writer': [
+        cookie('remember_user_token', 'x', '.jianshu.com', { httpOnly: true }),
+      ],
+    })
+    const adapter = new JianshuAdapter()
+    await adapter.init(runtime)
+
+    const auth = await adapter.checkAuth()
+    expect(auth.isAuthenticated).toBe(true)
   })
 })
 

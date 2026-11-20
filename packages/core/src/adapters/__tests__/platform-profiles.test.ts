@@ -158,8 +158,8 @@ describe('新增适配器与分类表一致', () => {
     [JiemianAdapter, 'jiemian', 'direct'],
     [JianshuAdapter, 'jianshu', 'direct'],
     [SmzdmAdapter, 'smzdm', 'direct'],
-    [BafangAdapter, 'bafang', 'direct'],
-    [Huangye88Adapter, 'huangye88', 'direct'],
+    [BafangAdapter, 'bafang', 'draft'],
+    [Huangye88Adapter, 'huangye88', 'draft'],
     [BaiduZhidaoAdapter, 'baiduzhidao', 'draft'],
     [IthomeAdapter, 'ithome', 'draft'],
     [InfoqAdapter, 'infoq', 'draft'],
@@ -174,7 +174,7 @@ describe('新增适配器与分类表一致', () => {
     }
   })
 
-  it('层级与设计一致：8 个可直发、4 个仅草稿', () => {
+  it('层级与设计一致：6 个可直发、6 个仅草稿', () => {
     const actual = CASES.map(([Adapter, , layer]) => {
       const adapter = new (Adapter as new () => {
         meta: { id: string; capabilities: string[] }
@@ -185,9 +185,9 @@ describe('新增适配器与分类表一致', () => {
     for (const [id, got, want] of actual) {
       expect(got, `${id} 层级不符`).toBe(want)
     }
-    // 百度知道是问答形态、没有文章编辑器，从名单里的「可直发」降到「仅草稿」
-    expect(actual.filter(([, got]) => got === 'direct')).toHaveLength(8)
-    expect(actual.filter(([, got]) => got === 'draft')).toHaveLength(4)
+    // 百度知道（问答形态）、八方 / 黄页88（B2B 多步表单）都没有文章编辑器，归「仅草稿」
+    expect(actual.filter(([, got]) => got === 'direct')).toHaveLength(6)
+    expect(actual.filter(([, got]) => got === 'draft')).toHaveLength(6)
   })
 
   it('每个新增平台都带内容形态标签', () => {
