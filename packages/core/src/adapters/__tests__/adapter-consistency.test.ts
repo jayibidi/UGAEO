@@ -101,14 +101,23 @@ describe('页面驱动平台的自检配置', () => {
     expect(notHttps, `非 https 入口：${notHttps.join(', ')}`).toEqual([])
   })
 
-  it('需要登录的平台必须给出 Cookie 名（否则永远判未登录）', () => {
+  it('需要登录的平台必须给出 Cookie 名或实测页面（否则永远判未登录）', () => {
+    // 登录态检测只有三条依据：声明的 Cookie 名、实测页面、会话 Cookie 兜底。
+    // 前两条都要在平台侧确认过；确认不了就只能靠兜底，此处显式登记，避免悄悄失效。
+    const SESSION_FALLBACK_ONLY = new Set([
+      // IT之家：登录走 passport（对爬虫 502），后台没有成员页可探，登录 Cookie 名无法确认
+      'ithome',
+    ])
+
     const broken = pageAdapters
       .filter(a => {
         const diag = a.getDiagnostics!()
-        return diag.requiresAuth && diag.authCookieNames.length === 0
+        if (!diag.requiresAuth) return false
+        if (SESSION_FALLBACK_ONLY.has(a.meta.id)) return false
+        return diag.authCookieNames.length === 0 && !diag.authProbeUrl
       })
       .map(a => a.meta.id)
-    expect(broken, `requiresAuth 但没有 Cookie 名：${broken.join(', ')}`).toEqual([])
+    expect(broken, `requiresAuth 但没有 Cookie 名也没有实测页面：${broken.join(', ')}`).toEqual([])
   })
 
   it('投稿型（submission）平台不得声明 publish 能力', () => {
@@ -121,7 +130,8 @@ describe('页面驱动平台的自检配置', () => {
 
   it('公开投稿表单返回「无需登录」而不是「已登录」', async () => {
     const publicAdapters = pageAdapters.filter(a => a.getDiagnostics!().requiresAuth === false)
-    expect(publicAdapters.length, '应当存在无需登录的投稿型平台').toBeGreaterThan(0)
+    // 目前所有平台都需要登录：IT之家、快懂百科原来标「无需登录」，实测都会跳登录页。
+    // 规则保留：将来真有公开投稿表单时，必须返回 authMode=public，而不是伪装成「已登录」。
 
     for (const adapter of publicAdapters) {
       const auth = await adapter.checkAuth()

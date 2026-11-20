@@ -25,17 +25,92 @@
  * - 查不到的组会带 `missing` 返回，便于用户/自检页定位到底哪一段选择器失效。
  */
 import { CodeAdapter } from './code-adapter'
+import type { RuntimeInterface } from '../runtime/interface'
 import type { Article, AuthResult, SyncResult, PlatformMeta } from '../types'
 import type { AdapterDiagnostics, PublishOptions } from './types'
 import { createLogger } from '../lib/logger'
 
 const logger = createLogger('PagePublish')
 
+/**
+ * 实测标签页的并发闸门
+ *
+ * 账号页一次并行检查 8 个平台。若这些平台都靠实测，同时弹出 8 个后台标签页
+ * 会让人以为中了弹窗。限制同时 2 个，其余排队 —— 单次实测只 1～3 秒。
+ */
+/** 排队等不到位子：直接放弃实测，退回 Cookie 判定（比超时好） */
+class ProbeBusyError extends Error {}
+
+const PROBE_CONCURRENCY = 2
+/** 排队上限：加上 6 秒加载，整体仍要落在 checkAuth 的 10 秒超时里 */
+const PROBE_WAIT_MS = 2500
+let probesRunning = 0
+const probeWaiters: Array<() => void> = []
+
+async function withProbeSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (probesRunning >= PROBE_CONCURRENCY) {
+    const acquired = await new Promise<boolean>(resolve => {
+      const timer = setTimeout(() => resolve(false), PROBE_WAIT_MS)
+      probeWaiters.push(() => {
+        clearTimeout(timer)
+        resolve(true)
+      })
+    })
+    if (!acquired) throw new ProbeBusyError('实测排队超时')
+  }
+  probesRunning += 1
+  try {
+    return await task()
+  } finally {
+    probesRunning -= 1
+    probeWaiters.shift()?.()
+  }
+}
+
+/**
+ * 登录态实测配置
+ *
+ * 做法：后台标签页打开 `url`，等加载完成后读两样东西 ——
+ * ① 最终地址（访客通常会被 302 到 `/login`）
+ * ② 页面正文（已登录页面会出现「退出」「会员中心」这类只有登录后才有的字）
+ *
+ * 判断顺序：guestUrlHints → authTexts → guestTexts；
+ * 三样都没命中就返回「未知」，交回 Cookie 判定，绝不硬猜。
+ */
+export interface AuthProbeConfig {
+  /** 用来判定的页面地址（访客态会跳登录页） */
+  url: string
+  /** 最终地址命中这些片段 → 未登录（例如 `pg=login`、`login.html`） */
+  guestUrlHints?: string[]
+  /** 页面文字命中这些 → 已登录（例如 `退出`） */
+  authTexts?: string[]
+  /** 页面文字命中这些 → 未登录（例如 `请先登录`） */
+  guestTexts?: string[]
+}
+
 export interface PagePublishConfig {
   /** 判断"已经打开的编辑器 tab"用的 URL 片段 */
   editorUrlMatch: string
   /** 找不到时新建的编辑器地址 */
   editorUrl: string
+  /**
+   * 额外的登录 Cookie 所在域（可选）
+   *
+   * 有的平台账号体系和内容站根本不是一个域名：顺企网的登录页在 `shunqi.com`，
+   * 内容站却是 `11467.com`。只查 editorUrl 的主域永远查不到登录票据。
+   */
+  authHosts?: string[]
+  /**
+   * 登录态实测（可选，最可靠）
+   *
+   * 老后台（ASP.NET / PHP 会话）把身份放在服务端 Session 里，浏览器只留一个
+   * `ASP.NET_SessionId`／`PHPSESSID` —— 游客也有，不能当凭证；而真正的登录
+   * Cookie 名字五花八门且会随版本改。这类平台「猜 Cookie」注定猜不准，
+   * 只能打开一个页面看会不会被踢回登录页。
+   *
+   * 配了它就以实测结果为准（Cookie 判定退居兜底）。
+   */
+  authProbe?: AuthProbeConfig
   /**
    * 登录页地址（可选，默认同 editorUrl）
    *
@@ -591,16 +666,16 @@ export abstract class PagePublishAdapter extends CodeAdapter {
   }
 
   /**
-   * 登录态检测：三级判定，从严到宽
+   * 登录态检测：实测 → 已声明 Cookie 名 → 会话 Cookie 兜底
    *
-   * 1. 按平台已知的登录 Cookie 名精确命中（最可靠）
-   * 2. 再按站点主域查一次（登录态常写在父域，如 `.jiemian.com`）
-   * 3. 兜底：站点下存在 httpOnly 会话 Cookie（排除统计/反爬名单）
+   * 顺序不是随便排的：
+   * 1. 配了 `authProbe` 的平台先实测（见 probeAuth）——这类平台的登录态在服务端
+   *    Session 里，Cookie 名无从猜测，只测才准；测出来就以此为准，不再猜。
+   * 2. 按平台声明的登录 Cookie 名精确命中（最可靠的静态判据）。
+   * 3. 兜底：站点下存在 httpOnly 会话 Cookie（排除统计/反爬名单）。
    *
-   * 第 3 级是为了「真的登录了但 Cookie 名对不上」这类平台 —— 它们的登录
-   * Cookie 名字随版本改（企鹅号的 p_uin / p_skey，顺企网的会员票据），
-   * 靠白名单猜永远是滞后的。放宽到会话 Cookie 后，用户不会再被
-   * 「明明登录了却显示未登录」卡住；万一真误判，发布会返回 needs_login 兜底。
+   * 第 3 级只给没配实测的平台用：它把「真的登录了但 Cookie 名对不上」救回来，
+   * 但也可能被游客的通行证 Cookie 骗到。能实测的平台就不赌这一把。
    */
   async checkAuth(): Promise<AuthResult> {
     if (!this.requiresAuth) {
@@ -610,11 +685,26 @@ export abstract class PagePublishAdapter extends CodeAdapter {
 
     const editorUrl = this.pageConfig.editorUrl
     const loginUrl = this.pageConfig.loginUrl ?? editorUrl
+    const failure = (): AuthResult => ({
+      isAuthenticated: false,
+      error: `未检测到${this.meta.name}登录态，请先在浏览器打开 ${new URL(loginUrl).origin} 完成登录，再点「重新检测」`,
+    })
+
     try {
       const targets = this.cookieTargets()
 
       if (await this.findNamedCookie(targets)) {
         return { isAuthenticated: true }
+      }
+
+      if (this.pageConfig.authProbe) {
+        const probed = await this.probeAuth()
+        if (probed !== null) {
+          logger.debug(`[${this.meta.id}] 登录态实测：${probed ? '已登录' : '未登录'}`)
+          if (probed) return { isAuthenticated: true }
+          return failure()
+        }
+        // 实测不可用（无标签页能力、超时、页面读不到）→ 退到下面的 Cookie 兜底
       }
 
       const inferred = await this.findSessionCookie(targets)
@@ -623,12 +713,82 @@ export abstract class PagePublishAdapter extends CodeAdapter {
         return { isAuthenticated: true }
       }
 
-      return {
-        isAuthenticated: false,
-        error: `未检测到${this.meta.name}登录态，请先在浏览器打开 ${new URL(loginUrl).origin} 完成登录，再点「重新检测」`,
-      }
+      return failure()
     } catch (error) {
       return { isAuthenticated: false, error: (error as Error).message }
+    }
+  }
+
+  /**
+   * 打开页面实测登录态
+   *
+   * 用后台标签页（`active: false`）而不是 `fetch`：跨站 fetch 受 SameSite 限制，
+   * `ASP.NET_SessionId` 这类没有 SameSite 标记的 Cookie 根本不会被带上，
+   * 会稳定地测出「未登录」——比不测更坑。标签页是一等公民导航，Cookie 正常携带。
+   *
+   * @returns true 已登录 / false 未登录 / null 测不出来（交回 Cookie 判定）
+   */
+  private async probeAuth(): Promise<boolean | null> {
+    const config = this.pageConfig.authProbe
+    const tabs = this.runtime.tabs
+    if (!config || !tabs) return null
+
+    // 整个「开页 → 读页 → 关页」都占一个位子，避免账号页并查 8 个平台时弹一堆标签页。
+    // 排不上队就当测不出来，交给 Cookie 判定——绝不能拖到「认证检查超时」。
+    try {
+      return await withProbeSlot(() => this.runProbe(config.url, config, tabs))
+    } catch (error) {
+      if (error instanceof ProbeBusyError) {
+        logger.debug(`[${this.meta.id}] 实测排队已满，改用 Cookie 判定`)
+        return null
+      }
+      throw error
+    }
+  }
+
+  /** 实测的实际动作，单独拆出来是为了让占位逻辑只管 try/finally */
+  private async runProbe(
+    url: string,
+    config: AuthProbeConfig,
+    tabs: NonNullable<RuntimeInterface['tabs']>
+  ): Promise<boolean | null> {
+    let tabId: number | undefined
+    try {
+      const tab = await tabs.create(url, false)
+      tabId = tab.id
+      // 6 秒够慢站加载；再长会撞上 checkAuth 的 10 秒总超时，
+      // 结果变成「检测超时」而不是「已登录/未登录」，比不测更糟
+      await tabs.waitForLoad(tabId, 6000)
+      // 加载完成后再给一次重定向的机会：有的站点是 JS 跳登录页
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      const snapshot = await tabs.executeScript(
+        tabId,
+        () => ({
+          url: location.href,
+          text: (document.body ? document.body.innerText : '').slice(0, 4000),
+        }),
+        []
+      )
+
+      const finalUrl = (snapshot?.url || '').toLowerCase()
+      const text = snapshot?.text || ''
+
+      const guestByUrl = (config.guestUrlHints ?? []).some(hint =>
+        finalUrl.includes(hint.toLowerCase())
+      )
+      if (guestByUrl) return false
+
+      if ((config.authTexts ?? []).some(word => text.includes(word))) return true
+      if ((config.guestTexts ?? []).some(word => text.includes(word))) return false
+      return null
+    } catch (error) {
+      logger.debug(`[${this.meta.id}] 登录态实测失败，回退到 Cookie 判定：${(error as Error).message}`)
+      return null
+    } finally {
+      if (tabId !== undefined && tabs.remove) {
+        await tabs.remove(tabId).catch(() => undefined)
+      }
     }
   }
 
@@ -658,6 +818,15 @@ export abstract class PagePublishAdapter extends CodeAdapter {
         }
       } catch {
         // 地址写错时忽略，交给下面的 Cookie 查询自然失败
+      }
+    }
+
+    // 账号体系独立域名的平台（顺企网：登录在 shunqi.com，内容站在 11467.com）
+    for (const host of this.pageConfig.authHosts ?? []) {
+      const domain = host.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/^\.+/, '')
+      if (domain && !seen.has(domain)) {
+        seen.add(domain)
+        out.push({ value: domain, isDomain: true })
       }
     }
     return out
@@ -717,6 +886,7 @@ export abstract class PagePublishAdapter extends CodeAdapter {
       authCookieNames: this.sessionCookieNames,
       entryUrl: this.pageConfig.editorUrl,
       loginUrl: this.pageConfig.loginUrl,
+      authProbeUrl: this.pageConfig.authProbe?.url,
       entryUrlMatch: this.pageConfig.editorUrlMatch,
       mode: this.pageConfig.mode ?? 'editor',
       titleSelectors: this.pageConfig.titleSelectors,

@@ -40,11 +40,12 @@ const SUBMIT_EDITORS = [
 /**
  * IT之家
  *
- * 投稿入口 dyn.ithome.com/tougao 是一张**纯说明页**（没有任何表单输入框，
- * 官方要求把稿件发到投稿邮箱 / 站内私信），www.ithome.com/tougao 已经 404。
- * 以前拿通用表单选择器去填，必然 0 命中，自检里红一片，同步里也只是白开一个页。
+ * 投稿入口 dyn.ithome.com/tougao 是一张**纯说明页**：没有在线编辑器，
+ * 官方给的两条路是「App 内置投稿」和「在金山文档写好再一键导入」。
+ * 因此登录是必须的（要绑账号才能被采用），但扩展既不能代填也不能代发。
  *
- * 所以标 manualOnly：只打开说明页，明确告诉用户要人工投递，不再假装能自动填。
+ * 以前把这里标成「无需登录」是错的：用户明明登录了，界面却说不用登录，
+ * 反而不清楚自己到底能不能发。
  */
 export class IthomeAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -52,16 +53,19 @@ export class IthomeAdapter extends PagePublishAdapter {
     name: 'IT之家',
     icon: 'https://www.ithome.com/favicon.ico',
     homepage: 'https://www.ithome.com',
+    // 没有可填充的编辑器，自然谈不上「一键发布」：只到草稿（人工投递）这一层
     capabilities: ['article', 'draft'],
   }
 
-  protected readonly requiresAuth = false
+  protected readonly requiresAuth = true
 
   protected readonly pageConfig: PagePublishConfig = {
     mode: 'submission',
     manualOnly: true,
     editorUrlMatch: 'dyn.ithome.com/tougao',
-    editorUrl: 'https://dyn.ithome.com/tougao',
+    editorUrl: 'https://dyn.ithome.com/tougao/',
+    loginUrl: 'https://www.ithome.com',
+    authHosts: ['ithome.com'],
     titleSelectors: SUBMIT_TITLES,
     editorSelectors: SUBMIT_EDITORS,
     publishTexts: ['提交', '投稿'],
@@ -70,7 +74,7 @@ export class IthomeAdapter extends PagePublishAdapter {
   protected readonly sessionCookieNames: string[] = []
 
   protected manualMessage(): string {
-    return 'IT之家的投稿入口只有说明页（没有在线表单，官方要求走投稿邮箱/站内私信）：已打开页面，正文请人工投递。扩展不会往搜索框里乱填东西。'
+    return 'IT之家没有网页版发文编辑器：官方路径是「App 内投稿」或在金山文档写好正文后由客户端一键导入（指南 https://img.ithome.com/app/tips/kdocs.html?hidemenu=1）。稿件已整理好，请复制正文人工投递。'
   }
 }
 
@@ -124,12 +128,13 @@ export class InfoqAdapter extends PagePublishAdapter {
 /**
  * 快懂百科（原互动百科，现字节旗下）
  *
- * 词条是「编辑提交 → 审核」，没有文章发布入口；
- * 且新词条要过收录门槛，不适合批量灌内容。
+ * 它**没有文章形态**：既没有草稿箱，也没有「发布文章」的入口，只有
+ * 「创建词条 / 编辑已有词条 → 提交审核」。所以正确的能力是 article + draft（人工），
+ * 永远不该出现「已发布」。
  *
- * 这里标成 manualOnly：只打开创建页，不注入内容。
- * 以前它靠 SUBMIT_TITLES 里的 `input[type="text"]` 去填，
- * 结果把文章标题写进了站内搜索框，还把草稿页当成「同步成功」。
+ * 词条的创建与编辑都要登录：未登录访问 /create 会被 302 到 /login。
+ * 以前这里 `requiresAuth = false`，界面显示「无需登录」还报「连接成功」，
+ * 用户点进去只会撞登录页 —— 现在改为必须登录，并按实际跳转实测。
  */
 export class KuaidongAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -140,15 +145,20 @@ export class KuaidongAdapter extends PagePublishAdapter {
     capabilities: ['article', 'draft'],
   }
 
-  /** 创建词条必须登录（未登录时 /create 会跳登录页），但这里不做登录过滤：
-   *  登录态写在字节 passport 上，Cookie 名不稳定，判错反而会把平台整个藏起来。 */
-  protected readonly requiresAuth = false
+  protected readonly requiresAuth = true
 
   protected readonly pageConfig: PagePublishConfig = {
     mode: 'submission',
     manualOnly: true,
-    editorUrlMatch: 'create',
+    editorUrlMatch: 'baike.com/create',
     editorUrl: 'https://www.baike.com/create',
+    loginUrl: 'https://www.baike.com/login',
+    authHosts: ['baike.com'],
+    // 未登录访问 /create 会被 302 到 /login?redirect_url=...，这是最直接的判据
+    authProbe: {
+      url: 'https://www.baike.com/create',
+      guestUrlHints: ['/login'],
+    },
     titleSelectors: ['input[placeholder*="词条"]', 'input[placeholder*="标题"]'],
     editorSelectors: ['div[contenteditable="true"]', 'textarea[placeholder*="内容"]'],
     publishTexts: ['提交', '创建'],
@@ -157,6 +167,6 @@ export class KuaidongAdapter extends PagePublishAdapter {
   protected readonly sessionCookieNames: string[] = []
 
   protected manualMessage(): string {
-    return '快懂百科是「编辑词条」流程，没有文章编辑器：已打开创建页，需要先登录，人工选择词条后提交审核。扩展不会替你新建词条，避免灌入无意义内容。'
+    return '快懂百科只支持「创建 / 编辑词条」，没有文章草稿箱和文章发布入口：已打开创建页（需登录），请按词条规范提交审核。编辑已有条目请到用户中心 https://www.baike.com/user 的「我的词条」。'
   }
 }

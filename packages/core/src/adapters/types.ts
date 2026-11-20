@@ -168,6 +168,8 @@ export interface AdapterDiagnostics {
   entryUrl?: string
   /** 登录页地址（与入口不同主机时才有值，登录态从这里查） */
   loginUrl?: string
+  /** 登录态实测页面（配了 authProbe 才有：不猜 Cookie 名，直接打开页面看） */
+  authProbeUrl?: string
   /** 用来判断「这个 tab 是不是入口页」的 URL 片段 */
   entryUrlMatch?: string
   /** 编辑器形态：editor 能自助发布，submission 只能人工提交 */

@@ -8,7 +8,10 @@ type ExecuteResult = { ok: boolean; stage: string; message?: string; url?: strin
 /**
  * 造一个最小 runtime：tabs 走脚本，executeScript 返回预设结果
  */
-function createRuntime(scriptResult: ExecuteResult | null | undefined): {
+function createRuntime(
+  scriptResult: ExecuteResult | null | undefined,
+  cookieMap: Record<string, Array<{ name: string; value: string; domain: string; path: string }>> = {}
+): {
   runtime: RuntimeInterface
   created: string[]
   injected: number
@@ -18,7 +21,12 @@ function createRuntime(scriptResult: ExecuteResult | null | undefined): {
   const runtime = {
     type: 'extension',
     fetch: async () => new Response('{}', { status: 200 }),
-    cookies: { get: async () => [], set: async () => {}, remove: async () => {} },
+    cookies: {
+      get: async (target: string) =>
+        Object.entries(cookieMap).find(([key]) => target.includes(key))?.[1] ?? [],
+      set: async () => {},
+      remove: async () => {},
+    },
     storage: { get: async () => null, set: async () => {}, remove: async () => {} },
     session: { get: async () => null, set: async () => {} },
     tabs: {
@@ -52,14 +60,27 @@ function noDelay<T extends { delay: (ms: number) => Promise<void> }>(adapter: T)
 const article = { title: '标题', html: '<p>正文内容足够长以便通过校验</p>' } as never
 
 describe('投稿制平台（仅草稿层）', () => {
-  it('不需要登录态，避免投稿页被判成「未登录」', async () => {
+  it('投稿也要登录：无登录态时如实判未登录，并指向门户', async () => {
     const { runtime } = createRuntime(undefined)
     const adapter = new IthomeAdapter()
     await adapter.init(runtime)
 
     const auth = await adapter.checkAuth()
-    expect(auth.isAuthenticated).toBe(true)
-    expect(auth.error).toBeUndefined()
+    expect(auth.isAuthenticated).toBe(false)
+    // 以前这里标「无需登录」，用户登录了却看不到自己的状态；现在必须如实说明
+    expect(auth.authMode).not.toBe('public')
+    expect(auth.error).toContain('https://www.ithome.com')
+  })
+
+  it('有登录态时判为已登录，但仍只到草稿层', async () => {
+    const { runtime } = createRuntime(undefined, {
+      'ithome.com': [{ name: 'it_passport', value: 'x', domain: '.ithome.com', path: '/' }],
+    })
+    const adapter = new IthomeAdapter()
+    await adapter.init(runtime)
+
+    expect((await adapter.checkAuth()).isAuthenticated).toBe(true)
+    expect(adapter.meta.capabilities).not.toContain('publish')
   })
 
   it('注入失败时不算发布失败，降级为「已打开投稿页」', async () => {

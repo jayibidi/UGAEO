@@ -44,8 +44,10 @@ const LEGACY_TITLES = [
  * 顺企网
  * 免费注册企业账号，会员中心可发企业资讯
  *
- * 登录票据在会员中心（`my.11467.com`），和门户不是同一个主机；
- * `ASP.NET_SessionId` 游客也有，所以不能拿它当登录凭证（已在基类排除名单里）。
+ * 登录体系在 `shunqi.com`，内容站在 `11467.com` —— 两个域名互不相干，
+ * 只查 11467 永远查不到登录票据，这是「明明登录了却显示未登录」的真正原因。
+ * 会话是 ASP.NET Session，浏览器里只留一个游客也有的 `ASP.NET_SessionId`，
+ * 所以登录态只能实测：打开门户看有没有被顶掉。
  */
 export class ShunqiAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -59,7 +61,15 @@ export class ShunqiAdapter extends PagePublishAdapter {
   protected readonly pageConfig: PagePublishConfig = {
     editorUrlMatch: '11467.com',
     editorUrl: 'https://www.11467.com/',
-    loginUrl: 'https://www.11467.com',
+    loginUrl: 'https://shunqi.com',
+    authHosts: ['shunqi.com', '11467.com'],
+    // 账号体系在 shunqi.com，直接测那里：访客看到的是登录页（含「免费注册」），
+    // 登录后是会员中心（含「退出」「管理中心」）。测不出来就交回 Cookie 判定。
+    authProbe: {
+      url: 'https://shunqi.com/',
+      authTexts: ['退出', '我的顺企', '管理中心', '会员中心'],
+      guestTexts: ['免费注册'],
+    },
     titleSelectors: LEGACY_TITLES,
     editorSelectors: LEGACY_EDITORS,
     publishTexts: ['发布', '提交', '发表', '保存'],
@@ -78,6 +88,11 @@ export class ShunqiAdapter extends PagePublishAdapter {
 
 /**
  * 八方资源网
+ *
+ * 会员中心在 `mw.b2b168.com`（登录页 `m.b2b168.com/?pg=login`），
+ * 旧代码写的 `member.b2b168.com` 是 404 —— 入口本身就是错的。
+ * 登录态同样在 ASP.NET Session 里，只能实测：访客访问会员中心会被 301
+ * 到 `Index.aspx?pg=login`。
  */
 export class BafangAdapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -89,9 +104,15 @@ export class BafangAdapter extends PagePublishAdapter {
   }
 
   protected readonly pageConfig: PagePublishConfig = {
-    editorUrlMatch: 'b2b168.com',
-    editorUrl: 'https://member.b2b168.com/',
-    loginUrl: 'https://www.b2b168.com',
+    editorUrlMatch: 'mw.b2b168.com',
+    editorUrl: 'https://mw.b2b168.com/Index.aspx',
+    loginUrl: 'https://m.b2b168.com/?pg=login',
+    authHosts: ['b2b168.com'],
+    authProbe: {
+      url: 'https://mw.b2b168.com/Index.aspx',
+      guestUrlHints: ['pg=login', '/login'],
+      authTexts: ['退出', '我的会员', '会员中心'],
+    },
     titleSelectors: LEGACY_TITLES,
     editorSelectors: LEGACY_EDITORS,
     publishTexts: ['发布', '提交', '发表', '保存'],
@@ -103,6 +124,8 @@ export class BafangAdapter extends PagePublishAdapter {
 
 /**
  * 黄页88
+ *
+ * 会员中心 `my.huangye88.com`，访客会被 302 到 `/login.html?from=...`。
  */
 export class Huangye88Adapter extends PagePublishAdapter {
   readonly meta: PlatformMeta = {
@@ -116,7 +139,13 @@ export class Huangye88Adapter extends PagePublishAdapter {
   protected readonly pageConfig: PagePublishConfig = {
     editorUrlMatch: 'huangye88.com',
     editorUrl: 'https://my.huangye88.com/',
-    loginUrl: 'https://my.huangye88.com',
+    loginUrl: 'https://my.huangye88.com/login.html',
+    authHosts: ['huangye88.com'],
+    authProbe: {
+      url: 'https://my.huangye88.com/',
+      guestUrlHints: ['login.html'],
+      authTexts: ['退出', '会员中心', '发布信息'],
+    },
     titleSelectors: LEGACY_TITLES,
     editorSelectors: LEGACY_EDITORS,
     publishTexts: ['发布', '提交', '发表', '保存'],

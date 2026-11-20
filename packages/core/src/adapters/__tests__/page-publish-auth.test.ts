@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { Cookie, RuntimeInterface } from '../../runtime/interface'
 import { ToutiaoAdapter } from '../platforms/toutiao'
 import { HuxiuAdapter, JiemianAdapter, TencentOmAdapter } from '../platforms/news-portals'
-import { ShunqiAdapter } from '../platforms/b2b-directory'
-import { InfoqAdapter } from '../platforms/submission-draft'
+import { ShunqiAdapter, BafangAdapter } from '../platforms/b2b-directory'
+import { InfoqAdapter, IthomeAdapter, KuaidongAdapter } from '../platforms/submission-draft'
 
 /** 只关心 cookie 查询的最小 runtime */
 function createRuntime(cookieMap: Record<string, Cookie[]>): {
@@ -135,7 +135,8 @@ describe('登录态检测 · 名字对不上时的兜底', () => {
 
     const auth = await adapter.checkAuth()
     expect(auth.isAuthenticated).toBe(false)
-    expect(auth.error).toContain('11467.com')
+    // 顺企网的登录入口在 shunqi.com，提示必须指向那里，否则用户照着点也登不上
+    expect(auth.error).toContain('shunqi.com')
   })
 
   it('过期 Cookie 不算登录态', async () => {
@@ -201,12 +202,22 @@ describe('多主机平台：登录页与投稿后台分离', () => {
     expect(auth.error).toContain('https://www.jiemian.com')
   })
 
-  it('虎嗅入口与登录页都在 mp.huxiu.com', async () => {
-    const { runtime: _runtime } = createRuntime({})
+  it('虎嗅入口在创作者后台，去登录送到门户 www.huxiu.com', async () => {
     const diag = new HuxiuAdapter().getDiagnostics()
     expect(diag.entryUrl).toContain('mp.huxiu.com')
-    expect(diag.loginUrl).toBe('https://mp.huxiu.com')
+    // mp 是后台，未登录进去只有空白；门户才有登录入口
+    expect(diag.loginUrl).toBe('https://www.huxiu.com')
     expect(diag.requiresAuth).toBe(true)
+  })
+
+  it('虎嗅未登录时，提示指向 www.huxiu.com', async () => {
+    const { runtime } = createRuntime({})
+    const adapter = new HuxiuAdapter()
+    await adapter.init(runtime)
+
+    const auth = await adapter.checkAuth()
+    expect(auth.isAuthenticated).toBe(false)
+    expect(auth.error).toContain('https://www.huxiu.com')
   })
 })
 
@@ -237,5 +248,124 @@ describe('InfoQ 不再标成「无需登录」', () => {
     const diag = new InfoqAdapter().getDiagnostics()
     expect(diag.entryUrl).toBe('https://xie.infoq.cn/application')
     expect(diag.requiresAuth).toBe(true)
+  })
+})
+
+/** 带标签页能力的最小 runtime：用于验证「打开页面实测登录态」 */
+function createProbeRuntime(opts: {
+  /** 打开后最终停留的地址 */
+  finalUrl: string
+  /** 页面正文 */
+  text?: string
+  cookies?: Record<string, Cookie[]>
+  fail?: boolean
+}): { runtime: RuntimeInterface; opened: string[]; removed: number[] } {
+  const opened: string[] = []
+  const removed: number[] = []
+  const base = createRuntime(opts.cookies ?? {}).runtime
+  const runtime = {
+    ...base,
+    tabs: {
+      query: async () => [],
+      create: async (url: string) => {
+        if (opts.fail) throw new Error('cannot open tab')
+        opened.push(url)
+        return { id: 7 }
+      },
+      waitForLoad: async () => {},
+      executeScript: async () => ({ url: opts.finalUrl, text: opts.text ?? '' }),
+      remove: async (tabId: number) => {
+        removed.push(tabId)
+      },
+    },
+  } as unknown as RuntimeInterface
+  return { runtime, opened, removed }
+}
+
+describe('登录态实测：靠页面判断，不靠猜 Cookie 名', () => {
+  it('八方资源网：访客被 301 到 pg=login → 未登录', async () => {
+    const { runtime, opened, removed } = createProbeRuntime({
+      finalUrl: 'https://mw.b2b168.com/Index.aspx?pg=login&url=x',
+      text: '登录 - 八方资源网',
+    })
+    const adapter = new BafangAdapter()
+    await adapter.init(runtime)
+
+    const auth = await adapter.checkAuth()
+    expect(auth.isAuthenticated).toBe(false)
+    expect(auth.error).toContain('八方资源网')
+    expect(opened[0]).toContain('mw.b2b168.com/Index.aspx')
+    // 探针标签页必须关掉，不能留在用户窗口里
+    expect(removed).toEqual([7])
+  })
+
+  it('八方资源网：停在会员中心且出现「退出」→ 已登录（即使 Cookie 一个都对不上）', async () => {
+    const { runtime } = createProbeRuntime({
+      finalUrl: 'https://mw.b2b168.com/Index.aspx',
+      text: '会员中心 您好，某某公司 退出',
+    })
+    const adapter = new BafangAdapter()
+    await adapter.init(runtime)
+
+    expect((await adapter.checkAuth()).isAuthenticated).toBe(true)
+  })
+
+  it('快懂百科：/create 被重定向到 /login → 未登录', async () => {
+    const { runtime } = createProbeRuntime({
+      finalUrl: 'https://www.baike.com/login?redirect_url=https%3A%2F%2Fwww.baike.com%2Fcreate',
+      text: '登录',
+    })
+    const adapter = new KuaidongAdapter()
+    await adapter.init(runtime)
+
+    const auth = await adapter.checkAuth()
+    expect(auth.isAuthenticated).toBe(false)
+    expect(auth.authMode).not.toBe('public')
+  })
+
+  it('实测打不开标签页时，退回 Cookie 判定而不是直接判未登录', async () => {
+    const { runtime } = createProbeRuntime({
+      finalUrl: 'about:blank',
+      fail: true,
+      cookies: { '11467.com': [cookie('member_ticket', 'x', '.11467.com', { httpOnly: true })] },
+    })
+    const adapter = new ShunqiAdapter()
+    await adapter.init(runtime)
+
+    expect((await adapter.checkAuth()).isAuthenticated).toBe(true)
+  })
+
+  it('顺企网登录态写在 shunqi.com 上也能识别', async () => {
+    const { runtime, calls } = createRuntime({
+      'shunqi.com': [cookie('shunqi_sso', 'x', '.shunqi.com', { httpOnly: true })],
+    })
+    const adapter = new ShunqiAdapter()
+    await adapter.init(runtime)
+
+    await adapter.checkAuth()
+    // 账号体系在 shunqi.com，Cookie 查询必须覆盖到它
+    expect(calls).toContain('shunqi.com')
+  })
+})
+
+describe('没有编辑器的平台不再谎报「无需登录」', () => {
+  it('IT之家：需要登录，只到草稿层，入口是投稿说明页', () => {
+    const diag = new IthomeAdapter().getDiagnostics()
+    expect(diag.requiresAuth).toBe(true)
+    expect(diag.manualOnly).toBe(true)
+    expect(diag.entryUrl).toContain('dyn.ithome.com/tougao')
+    expect(diag.loginUrl).toBe('https://www.ithome.com')
+  })
+
+  it('IT之家：不声明 publish 能力（无法一键发文）', () => {
+    const caps = new IthomeAdapter().meta.capabilities
+    expect(caps).toContain('draft')
+    expect(caps).not.toContain('publish')
+  })
+
+  it('快懂百科：需要登录，不是 public', () => {
+    const diag = new KuaidongAdapter().getDiagnostics()
+    expect(diag.requiresAuth).toBe(true)
+    expect(new KuaidongAdapter().meta.capabilities).not.toContain('publish')
   })
 })

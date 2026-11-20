@@ -122,7 +122,10 @@ export class HuxiuAdapter extends PagePublishAdapter {
   protected readonly pageConfig: PagePublishConfig = {
     editorUrlMatch: 'mp.huxiu.com',
     editorUrl: 'https://mp.huxiu.com/article/publish',
-    loginUrl: 'https://mp.huxiu.com',
+    // 去登录要送到门户（www 有账号登录入口）；mp 只是创作者后台，
+    // 未登录时进去只有一片空白，用户找不到登录按钮。
+    loginUrl: 'https://www.huxiu.com',
+    authHosts: ['huxiu.com'],
     titleSelectors: [...COMMON_TITLES, '.article-title input', '.title-wrap input'],
     editorSelectors: [...COMMON_EDITORS, '.article-content', '.editor-wrap'],
     publishTexts: ['发布', '提交', '发表'],
