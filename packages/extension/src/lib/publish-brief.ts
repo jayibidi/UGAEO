@@ -26,8 +26,13 @@ import { getAISettings, isAIReady } from './ai-settings'
 
 /** 单平台最多等多久：同步不能被模型拖住 */
 const AI_TIMEOUT_MS = 9000
-/** 一次发布最多问几个平台（多出来的用规则标题，不再排队） */
-const AI_CALL_LIMIT = 12
+/**
+ * 一次发布最多问几个平台（多出来的用规则标题，不再排队）
+ *
+ * 发布模式最多可选 25 个平台（可直发 11 + AI 自动发布 14），上限按这个数量给 ——
+ * 以前是 12，第二层放开之后就会出现「后 13 个平台没 AI 文案」的半成品。
+ */
+const AI_CALL_LIMIT = 25
 /** 模型并发上限，避免被上游限流 */
 const AI_CONCURRENCY = 3
 /** 正文只送前 6000 字：摘要和标签不需要全文 */
