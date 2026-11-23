@@ -118,6 +118,14 @@ export interface PlatformMeta {
   icon: string
   homepage: string
   capabilities: PlatformCapability[]
+  /**
+   * 没有统一的文章编辑器
+   *
+   * 词条编辑（快懂百科）、投稿表单（IT之家 / InfoQ）、问答（百度知道）、
+   * B2B 属性表单（八方 / 黄页88）都是这类：注入内容也发不出去，
+   * 硬填只会产出审核不过的垃圾数据。账号页把它单独分到第三层。
+   */
+  noEditor?: boolean
 }
 
 /**

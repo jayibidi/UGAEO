@@ -441,10 +441,14 @@ export async function syncToPlatform(
     )
 
     // 平台不支持公开发布时统一标注，避免 UI 误显示为「已发布」
+    //
+    // 例外：AI 自动发布层的平台本来就没有 publish 能力，但页面驱动可能真的点到了
+    // 「发布笔记 / 提交」并按 published 返回（draftOnly === false）。这时不能把它改回草稿，
+    // 否则用户发了却被显示成「只存了草稿」。
     const supportsPublish = adapter.meta.capabilities?.includes('publish')
-    if (options?.draftOnly === false && result.success && !supportsPublish) {
+    if (options?.draftOnly === false && result.success && !supportsPublish && result.draftOnly !== false) {
       result.draftOnly = true
-      result.message = result.message || '该平台暂不支持自动发布，已保存为草稿'
+      result.message = result.message || '该平台没有直发接口，已把内容留在编辑器 / 草稿里'
     }
 
     return result

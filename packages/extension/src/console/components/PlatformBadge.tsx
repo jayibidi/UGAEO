@@ -1,5 +1,5 @@
 import type { Platform, SyncResult } from '../lib/types'
-import { CONTENT_KIND_LABEL, getPlatformProfile } from '@ugaeo/core'
+import { CONTENT_KIND_LABEL, getPlatformProfile, resolvePublishLayer } from '@ugaeo/core'
 
 // 图标组件放在 src/components 下，控制台和弹窗共用同一套「平台自带图标 / 字母头像」逻辑
 export { PlatformIcon } from '../../components/platform-icon'
@@ -37,11 +37,21 @@ export function AuthPill({
 }
 
 export function PublishCapability({ platform }: { platform: Platform }) {
-  const canPublish = (platform.capabilities || []).includes('publish')
-  return canPublish ? (
-    <span className="uga-chip border border-primary/30 text-primary">可直发</span>
-  ) : (
-    <span className="uga-chip bg-muted text-muted-foreground">仅草稿</span>
+  const layer = resolvePublishLayer(platform)
+  if (layer === 'direct') {
+    return <span className="uga-chip border border-primary/30 text-primary">可直发</span>
+  }
+  if (layer === 'ai') {
+    return (
+      <span className="uga-chip border border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300">
+        AI 自动发布
+      </span>
+    )
+  }
+  return (
+    <span className="uga-chip bg-muted text-muted-foreground" title="没有统一文章编辑器，只能人工填写">
+      词条平台
+    </span>
   )
 }
 

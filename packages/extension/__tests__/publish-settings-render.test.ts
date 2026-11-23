@@ -47,6 +47,17 @@ const basePlatforms = [
     sourceType: 'dsl',
     capabilities: ['article', 'draft'],
   },
+  {
+    // 没有文章编辑器 → 第三层「词条平台」，不进可发布列表
+    id: 'ithome',
+    name: 'IT之家',
+    icon: '',
+    homepage: 'https://www.ithome.com',
+    isAuthenticated: true,
+    sourceType: 'dsl',
+    capabilities: ['article', 'draft'],
+    noEditor: true,
+  },
 ]
 
 function setState(patch: Record<string, unknown>) {
@@ -100,13 +111,15 @@ describe('PublishSettings 两个页签', () => {
     expect(html).not.toContain('全部存草稿')
   })
 
-  it('立即发布：只统计可直发平台，仅草稿平台不计入', () => {
-    setState({ publishMode: 'publish', publishTiming: 'now', selectedPlatforms: ['zhihu', 'douban'] })
+  it('立即发布：可直发 + AI 自动发布都计数，词条平台不计入', () => {
+    setState({ publishMode: 'publish', publishTiming: 'now', selectedPlatforms: ['zhihu', 'douban', 'ithome'] })
     const html = render()
 
-    expect(html).toContain('已选 1 个可发布平台')
-    expect(html).toContain('另外 1 个所选平台不支持自动发布')
-    expect(html).toContain('发布到 1 个平台')
+    // 知乎（可直发）+ 豆瓣（AI 自动发布）= 2；IT之家是词条平台，不参与
+    expect(html).toContain('已选 2 个可发布平台')
+    expect(html).toContain('共 3 个 · 可直发 2 / AI 1')
+    expect(html).toContain('另外 1 个所选平台是词条平台')
+    expect(html).toContain('发布到 2 个平台')
   })
 
   it('带入草稿：列出草稿并区分能否自动发布', () => {

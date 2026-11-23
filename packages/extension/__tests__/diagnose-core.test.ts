@@ -242,13 +242,15 @@ describe('pickBestHit / describeCounts', () => {
 })
 
 describe('conclusionOf', () => {
-  it('可直发 / 仅草稿 / 需人工 / 未登录', () => {
+  it('可直发 / AI 自动发布 / 词条平台 / 未登录', () => {
     expect(conclusionOf({ layer: 'direct', isAuthenticated: true, requiresAuth: true })).toBe('可直发')
-    expect(conclusionOf({ layer: 'draft', isAuthenticated: true, requiresAuth: true })).toBe('仅草稿')
-    expect(conclusionOf({ layer: 'draft', isAuthenticated: false, requiresAuth: true, manualOnly: true })).toBe('需人工')
+    expect(conclusionOf({ layer: 'ai', isAuthenticated: true, requiresAuth: true })).toBe('AI 自动发布')
+    expect(
+      conclusionOf({ layer: 'manual', isAuthenticated: false, requiresAuth: true, manualOnly: true })
+    ).toBe('词条平台（需人工）')
     expect(conclusionOf({ layer: 'direct', isAuthenticated: false, requiresAuth: true })).toBe('未登录')
-    expect(conclusionOf({ layer: 'draft', isAuthenticated: false, requiresAuth: false, authMode: 'public' })).toBe(
-      '仅草稿（免登录）'
+    expect(conclusionOf({ layer: 'ai', isAuthenticated: false, requiresAuth: false, authMode: 'public' })).toBe(
+      'AI 自动发布（免登录）'
     )
   })
 })

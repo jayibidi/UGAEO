@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, LogIn, Send, Users } from 'lucide-react'
 import { isLocalToolPlatform } from '@ugaeo/core'
+import { isManualOnly } from '../lib/publish-flow'
 import { collectFailures, useConsoleStore } from '../lib/store'
 import { formatRelative } from '../lib/format'
 import { PlatformIcon, ResultPill } from '../components/PlatformBadge'
@@ -76,9 +77,9 @@ export function OverviewPage() {
         />
         <StatCard
           icon={CheckCircle2}
-          label="可直接发布的平台"
-          value={authed.filter(p => (p.capabilities || []).includes('publish')).length}
-          hint="其余平台只能存草稿"
+          label="可自动发布的平台"
+          value={authed.filter(p => !isManualOnly(p)).length}
+          hint="可直发 + AI 自动发布；词条平台需人工"
         />
       </div>
 

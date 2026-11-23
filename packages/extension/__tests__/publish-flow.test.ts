@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildDraftOnlyMap,
   buildDraftRefs,
+  canAutoPublish,
   canPublishExistingDraft,
   countUnauthenticated,
   defaultScheduleValue,
@@ -36,6 +37,7 @@ const zhihu = platform({ id: 'zhihu', name: '知乎', capabilities: ['article', 
 const juejin = platform({ id: 'juejin', name: '掘金', capabilities: ['article', 'draft', 'publish', 'publish_existing_draft'] })
 const sohu = platform({ id: 'sohu', name: '搜狐号', capabilities: ['article', 'draft', 'publish'] })
 const douban = platform({ id: 'douban', name: '豆瓣', capabilities: ['article', 'draft'] })
+const ithome = platform({ id: 'ithome', name: 'IT之家', capabilities: ['article', 'draft'], noEditor: true })
 const offline = platform({ id: 'weibo', name: '微博', isAuthenticated: false, capabilities: ['publish'] })
 
 function result(overrides: Partial<SyncResult> & { platform: string }): SyncResult {
@@ -56,23 +58,34 @@ describe('平台筛选', () => {
   })
 
   it('存为草稿模式：全部平台一个不少，本地导出工具不算', () => {
-    // 草稿模式 = 全部内容平台（当前 32 个）；zip-download 是本地工具，不参与
+    // 草稿模式 = 全部内容平台（当前 31 个）；zip-download 是本地工具，不参与
     const many = [
-      ...Array.from({ length: 9 }, (_, i) => platform({ id: `pub${i}`, capabilities: ['article', 'draft', 'publish'] })),
-      ...Array.from({ length: 23 }, (_, i) => platform({ id: `drf${i}`, capabilities: ['article', 'draft'] })),
+      ...Array.from({ length: 11 }, (_, i) => platform({ id: `pub${i}`, capabilities: ['article', 'draft', 'publish'] })),
+      ...Array.from({ length: 14 }, (_, i) => platform({ id: `ai${i}`, capabilities: ['article', 'draft'] })),
+      ...Array.from({ length: 6 }, (_, i) => platform({ id: `man${i}`, capabilities: ['article', 'draft'], noEditor: true })),
       platform({ id: 'zip-download', capabilities: ['article'] }),
     ]
 
     const draft = splitPlatformsByMode(many, 'draft')
-    expect(draft.selectable).toHaveLength(32)
+    expect(draft.selectable).toHaveLength(31)
+
+    // 发布模式：可直发 + AI 自动发布都能选，只剩 6 个词条平台锁住
     const publish = splitPlatformsByMode(many, 'publish')
-    expect(publish.selectable).toHaveLength(9)
+    expect(publish.selectable).toHaveLength(25)
+    expect(publish.locked).toHaveLength(6)
   })
 
-  it('立即发布模式：仅草稿平台被锁住，未登录平台两边都不出现', () => {
-    const { selectable, locked } = splitPlatformsByMode([zhihu, sohu, douban, offline], 'publish')
-    expect(selectable.map(p => p.id)).toEqual(['zhihu', 'sohu'])
-    expect(locked.map(p => p.id)).toEqual(['douban'])
+  it('立即发布模式：AI 自动发布层可选，词条平台锁住，未登录平台两边都不出现', () => {
+    const { selectable, locked } = splitPlatformsByMode([zhihu, sohu, douban, ithome, offline], 'publish')
+    // 豆瓣（有编辑器、没有直发接口）走 AI 自动发布，能选；IT之家没有文章编辑器，锁住
+    expect(selectable.map(p => p.id)).toEqual(['zhihu', 'sohu', 'douban'])
+    expect(locked.map(p => p.id)).toEqual(['ithome'])
+  })
+
+  it('canAutoPublish：可直发 + AI 自动发布为真，词条平台为假', () => {
+    expect(canAutoPublish(zhihu)).toBe(true)
+    expect(canAutoPublish(douban)).toBe(true)
+    expect(canAutoPublish(ithome)).toBe(false)
   })
 
   it('未登录平台混在草稿目标里时能数出来，好提示先登录', () => {

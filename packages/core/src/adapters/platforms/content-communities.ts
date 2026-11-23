@@ -122,6 +122,8 @@ export class BaiduZhidaoAdapter extends PagePublishAdapter {
     icon: 'https://zhidao.baidu.com/favicon.ico',
     homepage: 'https://zhidao.baidu.com',
     capabilities: ['article', 'draft'],
+    // 没有统一文章编辑器 → 第三层「词条平台」
+    noEditor: true,
   }
 
   protected readonly pageConfig: PagePublishConfig = {

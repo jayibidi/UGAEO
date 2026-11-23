@@ -33,7 +33,8 @@ interface Props {
  * - 同步页「手动新建 / 编辑」→ 只保存，内容可以只写一半，随时 Ctrl+S；
  * - 失败处理「返回编辑」→ 保存并重发到指定平台。
  *
- * 平台列表跟着发布方式走：立即发布只列能自动发布的平台，存为草稿列全部已登录平台。
+ * 平台列表跟着发布方式走：立即发布列「可直发 + AI 自动发布」的平台，
+ * 存为草稿列全部平台；词条平台（没有文章编辑器）只在草稿模式可选。
  */
 export function EditArticleModal({
   open,
@@ -254,7 +255,7 @@ export function EditArticleModal({
                     <label className="text-xs font-medium text-muted-foreground">
                       目标平台
                       <span className="ml-1 font-normal">
-                        {mode === 'publish' ? '（可自动发布）' : '（全部平台）'} {selectable.length} 个
+                        {mode === 'publish' ? '（可自动发布：直发 + AI）' : '（全部平台）'} {selectable.length} 个
                       </span>
                     </label>
                     <div className="flex items-center gap-1">
@@ -313,7 +314,7 @@ export function EditArticleModal({
 
                   {mode === 'publish' && locked.length > 0 && (
                     <p className="mt-1.5 text-[11px] text-muted-foreground">
-                      另有 {locked.length} 个平台只能存草稿，切到「存为草稿」可选。
+                      另有 {locked.length} 个词条平台（没有文章编辑器）只能存草稿，切到「存为草稿」可选。
                     </p>
                   )}
                 </div>
@@ -346,7 +347,7 @@ export function EditArticleModal({
 
                   <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
                     {mode === 'publish'
-                      ? '只列出「已登录 + 支持自动发布」的平台；其余平台切到「存为草稿」再选。'
+                      ? '只列出「已登录 + 能自动发布」的平台；词条平台没有文章编辑器，切到「存为草稿」再选。'
                       : '全部平台都能收草稿；标「未登录」的同步前要先登录，发布仍需到平台后台点一下。'}
                     <br />
                     已选 {targets.length} 个目标

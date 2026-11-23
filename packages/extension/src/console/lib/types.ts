@@ -20,6 +20,12 @@ export interface Platform {
   /** 含 'publish' 表示支持直接公开发布 */
   capabilities?: string[]
   /**
+   * 没有统一文章编辑器（词条 / 投稿 / 问答 / B2B 属性表单）
+   *
+   * 这类平台扩展只打开入口页，内容必须人工填 —— 账号页把它分到第三层。
+   */
+  noEditor?: boolean
+  /**
    * 'public' = 平台是公开投稿表单，本来就不需要登录。
    * 这类平台 isAuthenticated 为 true（可用），但界面必须显示「无需登录」。
    */

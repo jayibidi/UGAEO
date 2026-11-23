@@ -30,9 +30,9 @@ export function PlatformList({
   // 完成/失败/取消都是终态，共用完成态的汇总头部和结果行渲染
   const isFinished = status === 'completed' || status === 'failed' || status === 'cancelled'
 
-  // 已登录平台按发布能力排序：可直发的排前面，仅草稿的排后面
+  // 已登录平台按发布能力排序：可直发 → AI 自动发布 → 词条平台
   const grouped = groupByPublishLayer(platforms.filter(p => p.isAuthenticated))
-  const authenticatedPlatforms = [...grouped.direct, ...grouped.draft]
+  const authenticatedPlatforms = [...grouped.direct, ...grouped.ai, ...grouped.manual]
   const unauthenticatedPlatforms = platforms.filter(p => !p.isAuthenticated)
   const selectedCount = selected.size
   const successCount = results.filter(r => r.success).length

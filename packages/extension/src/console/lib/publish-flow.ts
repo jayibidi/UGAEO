@@ -4,12 +4,32 @@
  * 抽出来的原因：控制台两个页签（存为草稿 / 立即发布）的差别全在这些判断上，
  * 放在组件里既难测也容易被后人改回「两个页签长得一样」。
  */
-import { isLocalToolPlatform } from '@ugaeo/core'
+import { isLocalToolPlatform, resolvePublishLayer } from '@ugaeo/core'
 import type { DraftRef, Platform, SyncResult } from './types'
 
-/** 平台能否真正公开发布（适配器声明了 publish 能力） */
+/** 平台能否真正公开发布（适配器声明了 publish 能力，脚本能直接点发布按钮） */
 export function isPublishable(platform: Platform): boolean {
   return !!platform.capabilities?.includes('publish')
+}
+
+/** 平台有没有统一文章编辑器（没有就只能人工填：词条 / 投稿 / 问答 / B2B 表单） */
+export function isManualOnly(platform: Platform): boolean {
+  return resolvePublishLayer(platform) === 'manual'
+}
+
+/**
+ * 平台会不会走「AI 自动发布」
+ *
+ * 有编辑器、但没有直发接口的那一层：AI 改好标题 / 摘要 / 标签后填表，
+ * 再让脚本点发布；点不到就退回草稿，不会假装成功。
+ */
+export function isAIPublishable(platform: Platform): boolean {
+  return resolvePublishLayer(platform) === 'ai'
+}
+
+/** 扩展能不能自动处理这个平台（直发 + AI 自动发布，排除词条平台） */
+export function canAutoPublish(platform: Platform): boolean {
+  return !isManualOnly(platform)
 }
 
 /** 平台能否把「已存在的草稿」直接发布（而不必重新创建一篇） */
@@ -20,9 +40,10 @@ export function canPublishExistingDraft(platform: Platform): boolean {
 /**
  * 按模式切分平台
  *
- * - draft：**全部平台**都能收草稿（32 个），未登录的先排进计划，登录后再同步；
+ * - draft：**全部平台**都能收草稿（31 个），未登录的先排进计划，登录后再同步；
  *   草稿落库不依赖自动发布接口，所以不能像以前那样只列已登录平台
- * - publish：只有「已登录 + 声明了 publish 能力」的平台可选，其余锁住并给出原因
+ * - publish：已登录 + 能自动发布（可直发 11 + AI 自动发布 14 = 25），
+ *   只剩第三层「词条平台」锁住 —— 它们没有文章编辑器，AI 也没有按钮可点
  *
  * `zip-download` 是本地导出工具而不是平台，账号 / 概览 / 自检各处都排除它，这里同口径。
  */
@@ -35,8 +56,8 @@ export function splitPlatformsByMode(
     return { selectable: usable, locked: [] }
   }
   return {
-    selectable: usable.filter(platform => platform.isAuthenticated && isPublishable(platform)),
-    locked: usable.filter(platform => platform.isAuthenticated && !isPublishable(platform)),
+    selectable: usable.filter(platform => platform.isAuthenticated && canAutoPublish(platform)),
+    locked: usable.filter(platform => platform.isAuthenticated && isManualOnly(platform)),
   }
 }
 

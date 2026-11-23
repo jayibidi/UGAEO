@@ -44,10 +44,11 @@ const STATUS_CLASS: Record<CheckStatus, string> = {
   skip: 'text-muted-foreground',
 }
 
-/** 结论用色：可直发绿、仅草稿蓝、需人工/未登录灰 */
+/** 结论用色：可直发绿、AI 自动发布紫、词条平台 / 未登录灰 */
 function conclusionClass(conclusion: string): string {
   if (conclusion.startsWith('可直发')) return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
-  if (conclusion.startsWith('仅草稿')) return 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300'
+  if (conclusion.startsWith('AI 自动发布'))
+    return 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
   return 'bg-muted text-muted-foreground'
 }
 

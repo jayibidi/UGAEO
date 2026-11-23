@@ -108,6 +108,12 @@ export async function diagnosePlatforms(options: DiagnoseOptions = {}): Promise<
       if (diag.mode === 'submission' && capabilities.includes('publish')) {
         issues.push('✖ 投稿型平台声明了 publish，界面会谎报「可直发」')
       }
+      if (diag.manualOnly && !meta.noEditor) {
+        issues.push('✖ manualOnly 却没声明 noEditor，账号页会把它错分到「AI 自动发布」层')
+      }
+      if (meta.noEditor && capabilities.includes('publish')) {
+        issues.push('✖ 没有文章编辑器却声明了 publish，界面会谎报「可直发」')
+      }
       if (diag.driver === 'page' && !diag.entryUrl) {
         issues.push('✖ 页面驱动平台缺少入口地址')
       }
@@ -197,7 +203,7 @@ export async function diagnosePlatforms(options: DiagnoseOptions = {}): Promise<
         icon: meta.icon,
         homepage: meta.homepage,
         capabilities: meta.capabilities ?? [],
-        layer: 'draft',
+        layer: 'manual',
         kind: getPlatformProfile(meta.id).kind,
         driver: 'api',
         requiresAuth: true,

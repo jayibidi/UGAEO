@@ -114,6 +114,12 @@ vi.mock('@ugaeo/core', async () => {
     tagCountFor: actual.tagCountFor,
     summaryMaxFor: actual.summaryMaxFor,
     platformStyleHint: actual.platformStyleHint,
+    // 三层分层（可直发 / AI 自动发布 / 词条平台）与内容形态
+    resolvePublishLayer: actual.resolvePublishLayer,
+    groupByPublishLayer: actual.groupByPublishLayer,
+    PLATFORM_PROFILES: actual.PLATFORM_PROFILES,
+    getPlatformProfile: actual.getPlatformProfile,
+    CONTENT_KIND_LABEL: actual.CONTENT_KIND_LABEL,
   }
 })
 

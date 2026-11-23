@@ -65,6 +65,8 @@ export class BafangAdapter extends PagePublishAdapter {
     icon: 'https://www.b2b168.com/favicon.ico',
     homepage: 'https://www.b2b168.com',
     capabilities: ['article', 'draft'],
+    // 没有统一文章编辑器 → 第三层「词条平台」
+    noEditor: true,
   }
 
   protected readonly pageConfig: PagePublishConfig = {
@@ -105,6 +107,8 @@ export class Huangye88Adapter extends PagePublishAdapter {
     icon: 'https://www.huangye88.com/favicon.ico',
     homepage: 'https://my.huangye88.com',
     capabilities: ['article', 'draft'],
+    // 没有统一文章编辑器 → 第三层「词条平台」
+    noEditor: true,
   }
 
   protected readonly pageConfig: PagePublishConfig = {

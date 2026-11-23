@@ -133,7 +133,7 @@ export function SyncPage() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-medium">目标平台</h2>
             <span className="text-[11px] text-muted-foreground">
-              {publishMode === 'draft' ? '全部平台只存草稿' : '仅显示可直发平台'}
+              {publishMode === 'draft' ? '全部平台只存草稿' : '可直发 + AI 自动发布，词条平台需人工'}
             </span>
           </div>
 

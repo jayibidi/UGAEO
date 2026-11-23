@@ -90,48 +90,64 @@ describe('发布层级推导', () => {
     expect(resolvePublishLayer({ id: 'jianshu', capabilities: ['article', 'publish'] })).toBe('direct')
   })
 
-  it('没有 publish 能力的平台归入仅草稿', () => {
-    expect(resolvePublishLayer({ id: 'ithome', capabilities: ['article', 'draft'] })).toBe('draft')
-    expect(resolvePublishLayer({ id: 'infoq', capabilities: ['article', 'draft'] })).toBe('draft')
+  it('有编辑器但没有 publish 能力的平台归入 AI 自动发布', () => {
+    // 微博 / 百家号 / B站这类：没有直发接口，靠 AI 改文案 + 填表 + 点发布
+    expect(resolvePublishLayer({ id: 'weibo', capabilities: ['article', 'draft'] })).toBe('ai')
+    expect(resolvePublishLayer({ id: 'baijiahao', capabilities: ['article', 'draft'] })).toBe('ai')
+  })
+
+  it('没有文章编辑器的平台归入词条平台（第三层）', () => {
+    expect(resolvePublishLayer({ id: 'ithome', capabilities: ['article', 'draft'], noEditor: true })).toBe('manual')
+    expect(resolvePublishLayer({ id: 'infoq', capabilities: ['article', 'draft'], noEditor: true })).toBe('manual')
     // 百度知道是问答形态，虽然名单里算「可注册可发布」，但落地只能是人工提交
-    expect(resolvePublishLayer({ id: 'baiduzhidao', capabilities: ['article', 'draft'] })).toBe('draft')
+    expect(resolvePublishLayer({ id: 'baiduzhidao', capabilities: ['article', 'draft'], noEditor: true })).toBe('manual')
+  })
+
+  it('noEditor 优先于 publish：没有编辑器却声明 publish 也不能算可直发', () => {
+    expect(resolvePublishLayer({ id: 'kuaidong', capabilities: ['article', 'publish'], noEditor: true })).toBe('manual')
   })
 
   it('能力里没有 publish 时不会被档案表误升级成可直发', () => {
     // 档案表只有 kind/order，不含 layer 覆盖，层级永远以能力为准
-    expect(resolvePublishLayer({ id: 'kuaidong', capabilities: [] })).toBe('draft')
+    expect(resolvePublishLayer({ id: 'kuaidong', capabilities: [] })).toBe('ai')
   })
 })
 
 describe('分层分组', () => {
   const platforms = [
-    { id: 'ithome', name: 'IT之家', capabilities: ['article', 'draft'] },
-    { id: 'huangye88', name: '黄页88', capabilities: ['article', 'publish'] },
+    { id: 'ithome', name: 'IT之家', capabilities: ['article', 'draft'], noEditor: true },
+    { id: 'huangye88', name: '黄页88', capabilities: ['article', 'draft'], noEditor: true },
     { id: 'netease', name: '网易号', capabilities: ['article', 'publish'] },
-    { id: 'kuaidong', name: '快懂百科', capabilities: ['article', 'draft'] },
+    { id: 'weibo', name: '微博', capabilities: ['article', 'draft'] },
     { id: 'jianshu', name: '简书', capabilities: ['article', 'publish'] },
   ]
 
-  it('分成两层，可直发在前', () => {
-    const { direct, draft } = groupByPublishLayer(platforms)
-    expect(direct.map(p => p.id)).toEqual(['netease', 'jianshu', 'huangye88'])
-    expect(draft.map(p => p.id)).toEqual(['ithome', 'kuaidong'])
+  it('分成三层：可直发 / AI 自动发布 / 词条平台', () => {
+    const { direct, ai, manual } = groupByPublishLayer(platforms)
+    expect(direct.map(p => p.id)).toEqual(['netease', 'jianshu'])
+    expect(ai.map(p => p.id)).toEqual(['weibo'])
+    expect(manual.map(p => p.id)).toEqual(['huangye88', 'ithome'])
   })
 
   it('组内按接入优先级排序，自助注册的平台排在申请制前面', () => {
-    const { direct } = groupByPublishLayer(platforms)
-    // netease(10) < jianshu(12) < huangye88(32)
-    expect(direct[0].id).toBe('netease')
-    expect(direct[direct.length - 1].id).toBe('huangye88')
+    const { direct, manual } = groupByPublishLayer([
+      ...platforms,
+      { id: 'jiemian', name: '界面新闻', capabilities: ['article', 'publish'] },
+    ])
+    // netease(10) < jianshu(12) < jiemian(22)
+    expect(direct.map(p => p.id)).toEqual(['netease', 'jianshu', 'jiemian'])
+    // huangye88(32) < ithome(40)
+    expect(manual.map(p => p.id)).toEqual(['huangye88', 'ithome'])
   })
 
   it('本地导出工具不参与平台分层', () => {
-    const { direct, draft } = groupByPublishLayer([
+    const { direct, ai, manual } = groupByPublishLayer([
       { id: 'zip-download', name: 'Markdown 压缩包', capabilities: ['article'] },
       { id: 'jianshu', name: '简书', capabilities: ['article', 'publish'] },
     ])
     expect(direct.map(p => p.id)).toEqual(['jianshu'])
-    expect(draft.map(p => p.id)).toEqual([])
+    expect(ai.map(p => p.id)).toEqual([])
+    expect(manual.map(p => p.id)).toEqual([])
   })
 })
 
@@ -154,12 +170,12 @@ describe('新增适配器与分类表一致', () => {
     [JiemianAdapter, 'jiemian', 'direct'],
     [JianshuAdapter, 'jianshu', 'direct'],
     [SmzdmAdapter, 'smzdm', 'direct'],
-    [BafangAdapter, 'bafang', 'draft'],
-    [Huangye88Adapter, 'huangye88', 'draft'],
-    [BaiduZhidaoAdapter, 'baiduzhidao', 'draft'],
-    [IthomeAdapter, 'ithome', 'draft'],
-    [InfoqAdapter, 'infoq', 'draft'],
-    [KuaidongAdapter, 'kuaidong', 'draft'],
+    [BafangAdapter, 'bafang', 'manual'],
+    [Huangye88Adapter, 'huangye88', 'manual'],
+    [BaiduZhidaoAdapter, 'baiduzhidao', 'manual'],
+    [IthomeAdapter, 'ithome', 'manual'],
+    [InfoqAdapter, 'infoq', 'manual'],
+    [KuaidongAdapter, 'kuaidong', 'manual'],
   ] as const
 
   it('12 个新增平台的 meta.id 都在分类表里', () => {
@@ -170,10 +186,10 @@ describe('新增适配器与分类表一致', () => {
     }
   })
 
-  it('层级与设计一致：5 个可直发、6 个仅草稿', () => {
+  it('层级与设计一致：5 个可直发、6 个词条平台', () => {
     const actual = CASES.map(([Adapter, , layer]) => {
       const adapter = new (Adapter as new () => {
-        meta: { id: string; capabilities: string[] }
+        meta: { id: string; capabilities: string[]; noEditor?: boolean }
       })()
       return [adapter.meta.id, resolvePublishLayer(adapter.meta), layer]
     })
@@ -181,9 +197,21 @@ describe('新增适配器与分类表一致', () => {
     for (const [id, got, want] of actual) {
       expect(got, `${id} 层级不符`).toBe(want)
     }
-    // 百度知道（问答形态）、八方 / 黄页88（B2B 多步表单）都没有文章编辑器，归「仅草稿」
+    // 百度知道（问答形态）、八方 / 黄页88（B2B 多步表单）、IT之家 / InfoQ（投稿）、
+    // 快懂百科（词条）都没有统一文章编辑器，归第三层「词条平台」
     expect(actual.filter(([, got]) => got === 'direct')).toHaveLength(5)
-    expect(actual.filter(([, got]) => got === 'draft')).toHaveLength(6)
+    expect(actual.filter(([, got]) => got === 'manual')).toHaveLength(6)
+  })
+
+  it('noEditor 与适配器的 manualOnly 完全对应，不会漏登记', () => {
+    for (const [Adapter] of CASES) {
+      const adapter = new (Adapter as unknown as new () => {
+        meta: { id: string; noEditor?: boolean }
+        getDiagnostics?: () => { manualOnly?: boolean }
+      })()
+      const manualOnly = adapter.getDiagnostics?.().manualOnly ?? false
+      expect(!!adapter.meta.noEditor, `${adapter.meta.id} 的 noEditor 与 manualOnly 不一致`).toBe(manualOnly)
+    }
   })
 
   it('每个新增平台都带内容形态标签', () => {

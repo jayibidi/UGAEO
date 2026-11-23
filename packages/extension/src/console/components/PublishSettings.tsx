@@ -9,14 +9,17 @@ import {
   Loader2,
   Send,
 } from 'lucide-react'
+import { isLocalToolPlatform } from '@ugaeo/core'
 import { useConsoleStore } from '../lib/store'
 import { PlatformIcon } from './PlatformBadge'
 import { SyncResults } from './SyncResults'
 import { TitleRulePreview } from './TitleRulePreview'
 import { getAISettings, isAIReady } from '../../lib/ai-settings'
 import {
+  canAutoPublish,
   countUnauthenticated,
   draftPublishMode,
+  isAIPublishable,
   isPublishable,
   isScheduleValid,
   parseDateTimeLocal,
@@ -73,10 +76,17 @@ export function PublishSettings() {
     }
   }, [])
 
+  // 可发布 = 可直发 + AI 自动发布（两者都登录后才可选）；词条平台没有编辑器，不进这张表。
+  // zip-download 是本地导出工具，不是平台，否则会把「共 26 个」算多一个
   const publishable = useMemo(
-    () => platforms.filter(platform => platform.isAuthenticated && isPublishable(platform)),
+    () =>
+      platforms.filter(
+        platform => !isLocalToolPlatform(platform.id) && platform.isAuthenticated && canAutoPublish(platform)
+      ),
     [platforms]
   )
+  const directCount = publishable.filter(isPublishable).length
+  const aiCount = publishable.filter(isAIPublishable).length
   const selectedPublishable = selectedPlatforms.filter(id => publishable.some(p => p.id === id))
   // 草稿模式下列表是全量平台，选中里可能夹着未登录的，同步前提示一句
   const unauthedSelected = countUnauthenticated(platforms, selectedPlatforms)
@@ -275,29 +285,33 @@ export function PublishSettings() {
           ) : (
             <>
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                只列出支持自动发布的平台。仅草稿的平台请切到「存为草稿」，同步后再到平台后台发布。
+                可直发的平台由脚本直接点下发布按钮；AI 自动发布的平台没有直发接口，由 AI 改好标题 /
+                摘要 / 标签后填表再点发布。第三层「词条平台」没有文章编辑器，请切到「存为草稿」后人工填写。
               </p>
 
-              {aiReady === false ? (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-                  未配置 AI：这次只会用规则标题、不填标签。到「设置 → AI 模型」填好 Key，
-                  自动发布就会为每个平台生成标题 / 摘要 / 标签，并自动填进发布页后点发布。
-                </p>
-              ) : (
-                <p className="rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                  AI 会按各平台的标题上限、标签习惯生成标题 / 摘要 / 标签，自动填进发布页并点发布；
-                  平台改版导致点不到按钮时，会明确告诉你停在哪一页。
-                </p>
-              )}
+              {aiCount > 0 &&
+                (aiReady === false ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                    未配置 AI：AI 自动发布的 {aiCount} 个平台这次只会用规则标题、不填标签（仍会填表并尝试点发布）。
+                    到「设置 → AI 模型」填好 Key，就会为每个平台生成标题 / 摘要 / 标签再接发布。
+                  </p>
+                ) : (
+                  <p className="rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                    AI 会按各平台的标题上限、标签习惯生成标题 / 摘要 / 标签，自动填进发布页并点发布；
+                    平台改版导致点不到按钮时，会明确告诉你停在哪一页，并把内容留在草稿里。
+                  </p>
+                ))}
 
               <div className="flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2 text-xs">
                 <span>已选 {selectedPublishable.length} 个可发布平台</span>
-                <span className="text-muted-foreground">共 {publishable.length} 个</span>
+                <span className="text-muted-foreground">
+                  共 {publishable.length} 个 · 可直发 {directCount} / AI {aiCount}
+                </span>
               </div>
 
               {publishable.length === 0 && (
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                  还没有可直发的平台，先去「账号」页登录。
+                  还没有可自动发布的平台，先去「账号」页登录。
                 </p>
               )}
 
@@ -330,7 +344,8 @@ export function PublishSettings() {
 
               {selectedPublishable.length < selectedPlatforms.length && (
                 <p className="text-[11px] text-muted-foreground">
-                  另外 {selectedPlatforms.length - selectedPublishable.length} 个所选平台不支持自动发布，本次不会处理。
+                  另外 {selectedPlatforms.length - selectedPublishable.length} 个所选平台是词条平台（没有文章编辑器），
+                  本次不会处理。
                 </p>
               )}
             </>

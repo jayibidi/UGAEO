@@ -63,11 +63,30 @@ describe('平台档案与适配器必须一一对应', () => {
     expect(bad, bad.join('；')).toEqual([])
   })
 
-  it('层级推导结果只能是 direct / draft', () => {
+  it('层级推导结果只能是 direct / ai / manual', () => {
     for (const adapter of adapters) {
       const layer = resolvePublishLayer(adapter.meta)
-      expect(['direct', 'draft']).toContain(layer)
+      expect(['direct', 'ai', 'manual']).toContain(layer)
     }
+  })
+
+  it('noEditor 必须与 manualOnly 一致（否则账号页会把它分错层）', () => {
+    const broken = adapters
+      .map(adapter => ({
+        id: adapter.meta.id,
+        noEditor: !!adapter.meta.noEditor,
+        manualOnly: !!adapter.getDiagnostics?.().manualOnly,
+      }))
+      .filter(item => item.noEditor !== item.manualOnly)
+      .map(item => `${item.id}: noEditor=${item.noEditor} manualOnly=${item.manualOnly}`)
+    expect(broken, broken.join('；')).toEqual([])
+  })
+
+  it('第三层「词条平台」不能声明 publish（否则界面会谎报可直发）', () => {
+    const broken = adapters
+      .filter(adapter => adapter.meta.noEditor && (adapter.meta.capabilities || []).includes('publish'))
+      .map(adapter => adapter.meta.id)
+    expect(broken, broken.join(',')).toEqual([])
   })
 })
 

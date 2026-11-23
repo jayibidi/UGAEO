@@ -49,7 +49,7 @@ export function AccountsPage() {
       .filter(p => (keyword ? p.name.toLowerCase().includes(keyword.toLowerCase()) : true))
   }, [dslPlatforms, filter, keyword])
 
-  // 按发布能力分两层：可直发在前，仅草稿在后；组内按接入优先级排序
+  // 按发布层级分三组：可直发 → AI 自动发布 → 词条平台；组内按接入优先级排序
   const grouped = useMemo(() => groupByPublishLayer(visible), [visible])
   const kindCount = useMemo(
     () => countByContentKind(dslPlatforms.filter(p => p.id !== 'zip-download')),
@@ -139,14 +139,20 @@ export function AccountsPage() {
         {
           key: 'direct',
           title: '第一层 · 可直发',
-          hint: '填完内容即可自动发布（部分平台先审后发）',
+          hint: '有直发接口，填完内容即可自动点下发布按钮（部分平台先审后发）',
           items: grouped.direct,
         },
         {
-          key: 'draft',
-          title: '第二层 · 仅草稿',
-          hint: '只能填入编辑器或投稿页，需要人工点发布 / 提交',
-          items: grouped.draft,
+          key: 'ai',
+          title: '第二层 · AI 自动发布',
+          hint: '有文章编辑器但没有直发接口：AI 改好标题 / 摘要 / 标签，填表后由脚本点发布，点不到就退回草稿',
+          items: grouped.ai,
+        },
+        {
+          key: 'manual',
+          title: '第三层 · 词条平台',
+          hint: '没有统一的文章编辑器（词条 / 投稿 / 问答 / B2B 表单），只打开入口页，需要人工填写提交',
+          items: grouped.manual,
         },
       ] as const).map(group => (
         <section key={group.key} className="space-y-3">

@@ -55,6 +55,8 @@ export class IthomeAdapter extends PagePublishAdapter {
     homepage: 'https://www.ithome.com',
     // 没有可填充的编辑器，自然谈不上「一键发布」：只到草稿（人工投递）这一层
     capabilities: ['article', 'draft'],
+    // 没有统一文章编辑器 → 第三层「词条平台」
+    noEditor: true,
   }
 
   protected readonly requiresAuth = true
@@ -98,6 +100,8 @@ export class InfoqAdapter extends PagePublishAdapter {
     icon: 'https://www.infoq.cn/favicon.ico',
     homepage: 'https://xie.infoq.cn',
     capabilities: ['article', 'draft'],
+    // 没有统一文章编辑器 → 第三层「词条平台」
+    noEditor: true,
   }
 
   protected readonly pageConfig: PagePublishConfig = {
@@ -143,6 +147,8 @@ export class KuaidongAdapter extends PagePublishAdapter {
     icon: 'https://www.baike.com/favicon.ico',
     homepage: 'https://www.baike.com',
     capabilities: ['article', 'draft'],
+    // 没有统一文章编辑器 → 第三层「词条平台」
+    noEditor: true,
   }
 
   protected readonly requiresAuth = true

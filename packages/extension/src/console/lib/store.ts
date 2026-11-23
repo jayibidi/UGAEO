@@ -8,8 +8,8 @@ import {
   buildDraftRefs,
   buildDraftOnlyMap,
   defaultScheduleValue,
+  canAutoPublish,
   draftPublishMode,
-  isPublishable,
   isScheduleValid,
   parseDateTimeLocal,
 } from './publish-flow'
@@ -477,11 +477,11 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
   setPublishMode: (mode) =>
     set(state => {
       if (mode === 'publish') {
-        // 草稿页是全量平台，切到发布页要把「未登录 / 无直发能力」的从选中里摘掉，
-        // 否则点发布时会带着一批注定失败的平台
+        // 草稿页是全量平台，切到发布页要把「未登录 / 词条平台」的从选中里摘掉：
+        // 可直发 + AI 自动发布都在可发布范围内，词条平台没有编辑器，带着只会注定失败
         const allowed = new Set(
           state.platforms
-            .filter(platform => platform.isAuthenticated && isPublishable(platform))
+            .filter(platform => platform.isAuthenticated && canAutoPublish(platform))
             .map(platform => platform.id)
         )
         return {
@@ -602,19 +602,20 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
     const syncId = options.syncId || newSyncId()
     const mode = options.mode || get().publishMode
 
-    // 发布模式下把「只支持草稿」的平台剔掉：否则会把它们一起提交，
-    // 适配器再降级成草稿，用户看到的「发布」就成了「又存了一堆草稿」
+    // 发布模式下只剔掉第三层「词条平台」：它们没有文章编辑器，注入进去也没有可点的发布按钮。
+    // 可直发与 AI 自动发布（有编辑器、没有直发接口）都要跑 —— 后者由 AI 改好文案、
+    // 脚本填表再点发布，点不到就老实退回草稿，而不是假装发出去。
     const metaById = new Map(get().platforms.map(platform => [platform.id, platform]))
     const targets =
       mode === 'publish'
         ? platformIds.filter(id => {
             const meta = metaById.get(id)
-            return !meta || (meta.capabilities || []).includes('publish')
+            return !meta || canAutoPublish(meta)
           })
         : platformIds
 
     if (!targets.length) {
-      set({ notice: { kind: 'error', text: '所选的平台都不支持自动发布，请改用「存为草稿」' } })
+      set({ notice: { kind: 'error', text: '所选平台都是词条平台（没有文章编辑器），请改用「存为草稿」' } })
       return []
     }
 

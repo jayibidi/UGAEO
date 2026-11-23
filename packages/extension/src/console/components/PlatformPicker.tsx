@@ -2,14 +2,15 @@ import { LogIn, Check, Lock } from 'lucide-react'
 import { isLocalToolPlatform } from '@ugaeo/core'
 import { useConsoleStore } from '../lib/store'
 import { AuthPill, PlatformIcon, PublishCapability } from './PlatformBadge'
-import { splitPlatformsByMode } from '../lib/publish-flow'
+import { isAIPublishable, isPublishable, splitPlatformsByMode } from '../lib/publish-flow'
 
 /**
  * 平台选择器
  *
  * 两种模式看到的平台不一样，这是两个页签「行为不同」的第一层体现：
- * - 存为草稿：**全部平台**（32 个）都能收草稿，未登录的标出来，同步前先登录
- * - 立即发布：只有「已登录 + 声明了 publish 能力」的平台可选，其余锁住并说明原因
+ * - 存为草稿：**全部平台**（31 个）都能收草稿，未登录的标出来，同步前先登录
+ * - 立即发布：已登录 + 能自动发布（可直发 + AI 自动发布）的平台可选，
+ *   第三层「词条平台」锁住 —— 它们没有文章编辑器，只能人工填写
  */
 export function PlatformPicker() {
   const {
@@ -25,11 +26,12 @@ export function PlatformPicker() {
 
   const { selectable, locked } = splitPlatformsByMode(platforms, publishMode)
   const isPublishMode = publishMode === 'publish'
-  // 草稿模式下列表已经是全量（含未登录），不用再单列一次
+  // 发布模式下把「能自动发布」的两层拆开展示：可直发 / AI 自动发布
+  const directCount = selectable.filter(isPublishable).length
+  const aiCount = selectable.filter(isAIPublishable).length
   const unauthed = isPublishMode
     ? platforms.filter(platform => !platform.isAuthenticated && !isLocalToolPlatform(platform.id))
     : []
-
   if (!platforms.length) {
     return (
       <div className="uga-card p-6 text-sm text-muted-foreground">
@@ -47,8 +49,13 @@ export function PlatformPicker() {
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-medium">
-            {isPublishMode ? '可直发平台' : '全部平台'}
+            {isPublishMode ? '可自动发布的平台' : '全部平台'}
             <span className="ml-1.5 text-xs font-normal text-muted-foreground">{selectable.length} 个</span>
+            {isPublishMode && (
+              <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                可直发 {directCount} · AI 自动发布 {aiCount}
+              </span>
+            )}
           </h3>
           <div className="flex gap-1">
             <button className="uga-btn-ghost px-2 py-1 text-xs" onClick={selectAllSelectable}>
@@ -67,8 +74,8 @@ export function PlatformPicker() {
           <div className="uga-card p-5 text-sm text-muted-foreground">
             {isPublishMode ? (
               <>
-                还没有可直发的平台。去「<span className="text-foreground">账号</span>」页登录知乎、掘金、CSDN
-                这类支持自动发布的平台，或者切到「存为草稿」用全部平台。
+                还没有可自动发布的平台。去「<span className="text-foreground">账号</span>」页登录知乎、掘金、CSDN
+                这类平台（可直发 + AI 自动发布共 25 个），或者切到「存为草稿」用全部平台。
               </>
             ) : (
               <>没有读取到平台列表，请打开扩展弹窗刷新一次再回来。</>
@@ -116,7 +123,7 @@ export function PlatformPicker() {
       {isPublishMode && locked.length > 0 && (
         <section>
           <h3 className="mb-2 text-sm font-medium">
-            仅支持草稿
+            词条平台 · 只能存草稿
             <span className="ml-1.5 text-xs font-normal text-muted-foreground">{locked.length} 个</span>
           </h3>
           <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
@@ -127,7 +134,7 @@ export function PlatformPicker() {
                 onClick={() =>
                   setNotice({
                     kind: 'info',
-                    text: `${platform.name} 只能存草稿：切到「存为草稿」同步，再到平台后台点发布`,
+                    text: `${platform.name} 没有文章编辑器（词条 / 投稿 / 表单）：切到「存为草稿」同步，再人工填写提交`,
                   })
                 }
               >
@@ -135,7 +142,7 @@ export function PlatformPicker() {
                 <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-muted-foreground">{platform.name}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground/70">没有自动发布接口</span>
+                  <span className="block truncate text-[11px] text-muted-foreground/70">没有文章编辑器</span>
                 </span>
                 <PublishCapability platform={platform} />
               </div>

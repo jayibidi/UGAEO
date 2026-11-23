@@ -19,7 +19,8 @@ export interface PlatformDiagnosis {
   icon?: string
   homepage: string
   capabilities: string[]
-  layer: 'direct' | 'draft'
+  /** direct = 可直发；ai = 有编辑器但没直发接口（AI 自动发布）；manual = 词条平台 */
+  layer: 'direct' | 'ai' | 'manual'
   kind: string
   driver: 'api' | 'page'
   requiresAuth: boolean
@@ -434,15 +435,15 @@ export function combineLevel(base: DiagnosisLevel, probe?: PageProbeResult | nul
 /** 业务结论：把能力声明翻译成人话 */
 export function conclusionOf(input: {
   manualOnly?: boolean
-  layer: 'direct' | 'draft'
+  layer: 'direct' | 'ai' | 'manual'
   isAuthenticated: boolean
   requiresAuth: boolean
   authMode?: 'cookie' | 'public'
 }): string {
-  if (input.manualOnly) return '需人工'
-  if (input.authMode === 'public') return input.layer === 'direct' ? '可直发（免登录）' : '仅草稿（免登录）'
+  if (input.manualOnly) return '词条平台（需人工）'
+  if (input.authMode === 'public') return input.layer === 'direct' ? '可直发（免登录）' : 'AI 自动发布（免登录）'
   if (input.requiresAuth && !input.isAuthenticated) return '未登录'
-  return input.layer === 'direct' ? '可直发' : '仅草稿'
+  return input.layer === 'direct' ? '可直发' : 'AI 自动发布'
 }
 
 const LEVEL_LABEL: Record<DiagnosisLevel, string> = { ok: '正常', warn: '待确认', error: '有问题' }

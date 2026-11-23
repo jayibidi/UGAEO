@@ -7,6 +7,8 @@ export interface Platform {
   username?: string
   /** 平台能力，含 'publish' 表示支持自动发布 */
   capabilities?: string[]
+  /** 没有统一文章编辑器（词条 / 投稿 / 问答 / B2B 表单），只能人工填写 */
+  noEditor?: boolean
   /** 'public' = 公开投稿入口，无需登录（不能显示成「已登录」） */
   authMode?: 'cookie' | 'public'
 }

@@ -57,6 +57,17 @@ const platforms = [
     sourceType: 'dsl',
     capabilities: ['article', 'draft'],
   },
+  {
+    // 没有文章编辑器的平台：发布模式下列不出来，只能存草稿后人工填写
+    id: 'ithome',
+    name: 'IT之家',
+    icon: '',
+    homepage: 'https://www.ithome.com',
+    isAuthenticated: true,
+    sourceType: 'dsl',
+    capabilities: ['article', 'draft'],
+    noEditor: true,
+  },
 ]
 
 function setState(patch: Record<string, unknown> = {}) {
@@ -82,24 +93,28 @@ function render(props: Record<string, unknown> = {}): string {
 }
 
 describe('EditArticleModal 平台联动', () => {
-  it('立即发布：只列可自动发布的平台，仅草稿平台给出提示', () => {
+  it('立即发布：列出可直发 + AI 自动发布的平台，词条平台给出提示', () => {
     setState()
     const html = render({ defaultMode: 'publish', purpose: 'save' })
 
     expect(html).toContain('知乎')
     expect(html).toContain('掘金')
-    expect(html).not.toContain('豆瓣')
-    expect(html).toContain('另有 1 个平台只能存草稿')
+    // 豆瓣有编辑器、没有直发接口 → 走 AI 自动发布，能选
+    expect(html).toContain('豆瓣')
+    // IT之家没有文章编辑器 → 锁在草稿模式
+    expect(html).not.toContain('IT之家')
+    expect(html).toContain('另有 1 个词条平台（没有文章编辑器）只能存草稿')
     // 未登录平台任何模式下都不该出现
     expect(html).not.toContain('微博')
   })
 
-  it('存为草稿：可发草稿的平台全都在，含仅草稿平台', () => {
+  it('存为草稿：全部平台都在，含词条平台', () => {
     setState()
     const html = render({ defaultMode: 'draft', purpose: 'save' })
 
     expect(html).toContain('知乎')
     expect(html).toContain('豆瓣')
+    expect(html).toContain('IT之家')
     expect(html).not.toContain('另有')
   })
 

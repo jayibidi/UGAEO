@@ -3,10 +3,13 @@
  *
  * 分两个维度打标签，互不替代：
  * - 内容形态 kind：图文类 / 资讯类 —— 只作为账号卡片上的标签展示
- * - 发布能力 layer：可直发 / 仅草稿 —— 决定账号页的层级分组（第一层 / 第二层）
+ * - 发布能力 layer：可直发 / AI 自动发布 / 词条平台 —— 决定账号页的层级分组
  *
- * layer 不在这里写死，而是由适配器 meta.capabilities 是否包含 'publish' 推导，
- * 避免「标签说能直发、代码实际只存草稿」这种不一致。
+ * layer 不在这里写死，而是由适配器声明推导，避免「标签说能直发、代码实际只存草稿」：
+ * - `meta.noEditor` → 第三层「词条平台」：没有统一文章编辑器，只能人工填写
+ * - `capabilities` 含 'publish' → 第一层「可直发」：脚本能直接点下发布按钮
+ * - 其余（只声明 draft）→ 第二层「AI 自动发布」：有编辑器但没有直发接口，
+ *   由 AI 改好标题 / 摘要 / 标签后填表并点发布（点不到就老实退回草稿）
  *
  * 现有平台（2.3.x 之前接入的）不改适配器文件，靠这张表补标签；
  * 新增平台同样登记在这里，保证所有平台都带双标签。
@@ -16,7 +19,7 @@
 export type ContentKind = 'graphic' | 'news'
 
 /** 发布能力层级 */
-export type PublishLayer = 'direct' | 'draft'
+export type PublishLayer = 'direct' | 'ai' | 'manual'
 
 export interface PlatformProfile {
   /** 内容形态：图文类 / 资讯类 */
@@ -34,7 +37,8 @@ export const CONTENT_KIND_LABEL: Record<ContentKind, string> = {
 
 export const PUBLISH_LAYER_LABEL: Record<PublishLayer, string> = {
   direct: '可直发',
-  draft: '仅草稿',
+  ai: 'AI 自动发布',
+  manual: '词条平台',
 }
 
 /**
@@ -75,7 +79,7 @@ export const PLATFORM_PROFILES: Record<string, PlatformProfile> = {
   smzdm: { kind: 'graphic', order: 13, note: '手机号自助注册，需实名；发布后审核' },
   jiemian: { kind: 'news', order: 22, note: '申请制，财经号需公众号运营满 30 天；后台投稿后仍经编辑审核' },
 
-  // ── 新增 · 第二层 · 仅草稿 ──
+  // ── 新增 · 第三层 · 词条平台（没有统一文章编辑器） ──
   bafang: { kind: 'news', order: 31, note: 'B2B 供应/求购信息，多步表单（选分类→填属性），扩展只打开发布页' },
   huangye88: { kind: 'news', order: 32, note: 'B2B 信息发布，先选四级分类再填表单，扩展只打开发布页' },
   baiduzhidao: { kind: 'graphic', order: 50, note: '问答形态，无文章编辑器；打开提问页后需人工提交' },
@@ -98,35 +102,45 @@ export function contentKindLabel(platformId: string): string {
 /**
  * 发布层级：以适配器声明为准
  *
- * 能力里没有 'publish' 的平台一律归入「仅草稿」，
- * 这类平台即使点了「立即发布」，实际也只会把内容填进编辑器。
+ * - `noEditor` → 词条平台（没有统一文章编辑器，只能人工填写）
+ * - 含 'publish' → 可直发（脚本能直接点下发布按钮）
+ * - 其余 → AI 自动发布（有编辑器、没有直发接口，靠 AI 填表后点发布）
  */
-export function resolvePublishLayer(meta: { id: string; capabilities?: string[] }): PublishLayer {
+export function resolvePublishLayer(meta: {
+  id: string
+  capabilities?: string[]
+  noEditor?: boolean
+}): PublishLayer {
+  if (meta.noEditor) return 'manual'
   const profile = PLATFORM_PROFILES[meta.id]
   if (profile && (profile as PlatformProfile & { layer?: PublishLayer }).layer) {
     return (profile as PlatformProfile & { layer?: PublishLayer }).layer!
   }
-  return (meta.capabilities || []).includes('publish') ? 'direct' : 'draft'
+  return (meta.capabilities || []).includes('publish') ? 'direct' : 'ai'
+}
+
+/** 这个平台的 layer 能不能被扩展自动处理（含 AI 代填 + 点发布） */
+export function isAutoPublishLayer(layer: PublishLayer): boolean {
+  return layer !== 'manual'
 }
 
 /**
- * 按发布层级分成两组，组内按 order → 名称排序
+ * 按发布层级分成三组，组内按 order → 名称排序
  *
  * 排序规则：order 小的在前；order 相同按名称，保证刷新前后顺序稳定。
  */
-export function groupByPublishLayer<T extends { id: string; name: string; capabilities?: string[] }>(
-  platforms: T[]
-): { direct: T[]; draft: T[] } {
+export function groupByPublishLayer<
+  T extends { id: string; name: string; capabilities?: string[]; noEditor?: boolean },
+>(platforms: T[]): { direct: T[]; ai: T[]; manual: T[] } {
   const sortFn = (a: T, b: T) => {
     const orderDiff = getPlatformProfile(a.id).order! - getPlatformProfile(b.id).order!
     if (orderDiff !== 0) return orderDiff
     return a.name.localeCompare(b.name, 'zh-Hans-CN')
   }
+  const pick = (layer: PublishLayer) =>
+    platforms.filter(p => p.id !== 'zip-download' && resolvePublishLayer(p) === layer).sort(sortFn)
 
-  return {
-    direct: platforms.filter(p => p.id !== 'zip-download' && resolvePublishLayer(p) === 'direct').sort(sortFn),
-    draft: platforms.filter(p => p.id !== 'zip-download' && resolvePublishLayer(p) === 'draft').sort(sortFn),
-  }
+  return { direct: pick('direct'), ai: pick('ai'), manual: pick('manual') }
 }
 
 /** 内容形态分组统计，用于账号页顶部概览 */
