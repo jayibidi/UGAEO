@@ -107,6 +107,13 @@ vi.mock('@ugaeo/core', async () => {
     effectiveTitleMax: actual.effectiveTitleMax,
     truncateTitle: actual.truncateTitle,
     titleFromBody: actual.titleFromBody,
+    // AI 默认配置（设置页与发布设置都要用）
+    DEFAULT_AI_BASE_URL: actual.DEFAULT_AI_BASE_URL,
+    DEFAULT_AI_MODEL: actual.DEFAULT_AI_MODEL,
+    // AI 发布计划用的纯函数（标签数量、摘要长度、平台调性）
+    tagCountFor: actual.tagCountFor,
+    summaryMaxFor: actual.summaryMaxFor,
+    platformStyleHint: actual.platformStyleHint,
   }
 })
 

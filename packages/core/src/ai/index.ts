@@ -11,6 +11,7 @@ import type { RewriteMode } from './prompts'
 
 export * from './client'
 export * from './prompts'
+export * from './publish-brief'
 export { OpenAIProcessor, htmlToPlainText } from './processor'
 export type { AdaptOptions } from './processor'
 
@@ -53,6 +54,14 @@ export interface AIProcessor {
     targetPlatform: string,
     options?: { title?: string; platformName?: string }
   ): Promise<string>
+
+  /**
+   * 自动发布计划：一次生成该平台要用的标题 / 摘要 / 标签
+   *
+   * 可选能力 —— 没有实现的处理器（例如 Noop）返回 undefined，
+   * 调用方据此退回「规则标题 + 不填标签」，自动发布照常进行。
+   */
+  planPublish?(input: import('./publish-brief').PublishBriefInput): Promise<import('./publish-brief').PublishBrief | null>
 
   /**
    * 正文加工（润色 / 扩写 / 精简）

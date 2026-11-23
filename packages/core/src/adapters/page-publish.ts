@@ -167,6 +167,17 @@ export interface PagePublishConfig {
   draftTexts?: string[]
   /** 发布后的二次确认文案（默认 确定 / 确认发布 / 继续发布） */
   confirmTexts?: string[]
+  /** 标签输入框候选选择器（不配则按「标签 / 话题」语义找） */
+  tagInputSelectors?: string[]
+  /**
+   * 标签写进正文末尾
+   *
+   * 小红书 / 微博这类平台的话题就是正文里的 `#话题`，没有独立的标签输入框。
+   * 这类平台开这个开关，标签会以 `#标签` 追加到正文最后一行。
+   */
+  tagsInBody?: boolean
+  /** 入口 / 整理步骤每步点完等多久（默认 1200ms，重 SPA 可调大） */
+  stepWaitMs?: number
   /** 等待标题框 / 编辑器的上限（毫秒），重 SPA 可调大 */
   waitMs?: number
   /**
@@ -182,8 +193,14 @@ export interface InjectedPublishPayload {
   title: string
   html: string
   images: string[]
+  /** AI 生成的标签 / 话题（逐条填入标签框，或按平台形态追加到正文） */
+  tags: string[]
+  /** AI 生成的摘要 / 简介（发布表单有「摘要」字段时填） */
+  summary: string
   titleSelectors: string[]
   editorSelectors: string[]
+  tagInputSelectors: string[]
+  tagsInBody: boolean
   publishTexts: string[]
   draftTexts: string[]
   confirmTexts: string[]
@@ -194,6 +211,7 @@ export interface InjectedPublishPayload {
   requireImages: boolean
   autoPublish: boolean
   waitMs: number
+  stepWaitMs: number
 }
 
 export type InjectedStage =
@@ -240,7 +258,25 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     const view = el.ownerDocument?.defaultView
     if (!view) return true
     const style = view.getComputedStyle(el as HTMLElement)
-    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false
+
+    // 祖先链也要看。大量后台把登录弹窗「隐藏」做在父级上：
+    // 父容器 opacity:0 或 transform 到屏幕外，子元素的 computed opacity 依然是 1、
+    // 尺寸也正常 —— 只看自己会被这类幽灵弹窗骗到，把正常页面判成登录页。
+    let node: Element | null = el.parentElement
+    for (let depth = 0; node && depth < 10; depth++, node = node.parentElement) {
+      if (node.hasAttribute('hidden')) return false
+      if (node.getAttribute('aria-hidden') === 'true') return false
+      const parentStyle = view.getComputedStyle(node)
+      if (
+        parentStyle.display === 'none' ||
+        parentStyle.visibility === 'hidden' ||
+        parentStyle.opacity === '0'
+      ) {
+        return false
+      }
+    }
+    return true
   }
 
   /** 主文档 + 同源 iframe 的文档集合（老式后台把表单放在 frame 里） */
@@ -424,16 +460,31 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     return null
   }
 
-  /** 是否被重定向到登录页 */
+  /**
+   * 是否被重定向到登录页
+   *
+   * 这里宁可漏判也不能误判：误判的代价是「明明登录了却提示去登录」，
+   * 用户重登十次也没用（简书、企鹅号都栽在这条上）。所以两条判据都要成立：
+   * ①地址本身是登录地址；②页面上有**真可见**的密码框，且正文出现登录字样。
+   * 只有密码框不算 —— 很多后台把登录弹窗预置在 DOM 里，靠父级隐藏。
+   */
   const looksLikeLogin = (): boolean => {
-    const url = location.href
-    if (/\/login|signin|passport|\/sso|auth\//i.test(url)) return true
-    // 页面上有可见的密码框，基本就是在等人的登录页（含 iframe 里的登录框）
+    if (/(?:\/login|\/sign_?in|\/signin|\/passport|\/sso(?:\/|$)|\/userAuth|login\.html|passport\.)/i.test(location.href)) {
+      return true
+    }
+
+    let hasPassword = false
     for (const doc of collectDocs()) {
       const pwd = doc.querySelector<HTMLInputElement>('input[type="password"]')
-      if (pwd && isUsable(pwd)) return true
+      if (pwd && isUsable(pwd)) {
+        hasPassword = true
+        break
+      }
     }
-    return false
+    if (!hasPassword) return false
+
+    const text = (document.body?.innerText || '').slice(0, 3000)
+    return /(登录|登陆|扫码登录|密码登录|sign\s*in|log\s*in)/i.test(text)
   }
 
   /**
@@ -586,8 +637,191 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     return files.length
   }
 
-  // ── 0. 先确认没被踢到登录页 ──
-  if (looksLikeLogin()) {
+  /**
+   * 填标题
+   *
+   * input / textarea / contenteditable 三种都要支持：小红书长文的标题是
+   * contenteditable，靠原生 setter 填不进去（React 的受控组件会把它抹掉）。
+   */
+  const applyTitle = async (el: HTMLElement) => {
+    if (el.isContentEditable) {
+      setEditableText(el, payload.title)
+    } else {
+      el.focus()
+      setNativeValue(el as HTMLInputElement, payload.title)
+    }
+    await sleep(200)
+  }
+
+  /** 写正文：execCommand 能被富文本编辑器正确接管，失败退回 innerHTML */
+  const applyBody = async (el: HTMLElement): Promise<boolean> => {
+    el.focus()
+    try {
+      el.click()
+    } catch {
+      // 点一下让编辑器进入编辑态，失败无所谓
+    }
+    await sleep(150)
+    const doc = el.ownerDocument || document
+    // 先全选再插入：复用标签页时不会把上一次的内容留在前面
+    try {
+      doc.execCommand('selectAll')
+    } catch {
+      // 不支持就算了
+    }
+    let inserted = false
+    try {
+      inserted = doc.execCommand('insertHTML', false, payload.html)
+    } catch {
+      inserted = false
+    }
+    if (!inserted || textLength(el) < 10) {
+      el.innerHTML = payload.html
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, data: payload.html, inputType: 'insertText' }))
+    }
+    await sleep(700)
+    return textLength(el) >= 5
+  }
+
+  /** 摘要 / 简介 / 导语：发布表单有这一栏才填 */
+  const applySummary = async (): Promise<boolean> => {
+    if (!payload.summary) return false
+    const el = queryFirst<HTMLElement>([
+      'textarea[placeholder*="摘要"]',
+      'input[placeholder*="摘要"]',
+      '[data-placeholder*="摘要"]',
+      'textarea[placeholder*="简介"]',
+      'input[placeholder*="简介"]',
+      'textarea[placeholder*="导语"]',
+      'textarea[placeholder*="描述"]',
+      'textarea[name*="summary"]',
+      'textarea[name*="digest"]',
+      'textarea[name*="description"]',
+      'input[name*="summary"]',
+    ])
+    if (!el) return false
+    if (el.isContentEditable || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) {
+      setEditableText(el, payload.summary)
+    } else {
+      setNativeValue(el as HTMLInputElement, payload.summary)
+    }
+    await sleep(250)
+    return true
+  }
+
+  /**
+   * 标签 / 话题
+   *
+   * 标签是「自动发布」里最容易被漏掉的一步：平台会给带话题的内容更多分发，
+   * 而标签框的文案各平台都不一样（标签 / 话题 / 添加标签 / 回车分隔）。
+   * 找不到输入框时，按平台形态把 `#话题` 追加到正文末尾（小红书这类）。
+   */
+  const applyTags = async (opts: {
+    bodyEl?: HTMLElement | null
+    titleEl?: HTMLElement | null
+  } = {}): Promise<boolean> => {
+    if (payload.tags.length === 0) return false
+
+    let tagInput = queryFirst<HTMLElement>(payload.tagInputSelectors)
+    if (!tagInput) {
+      const TAG_HINT = /(标签|话题|添加标签|tag)/i
+      const nodes: Element[] = []
+      for (const doc of collectDocs()) {
+        try {
+          nodes.push(...Array.from(doc.querySelectorAll('input, textarea, [contenteditable="true"]')))
+        } catch {
+          continue
+        }
+      }
+      for (const node of nodes) {
+        const el = node as HTMLElement
+        if (!isUsable(el)) continue
+        if (el === opts.bodyEl || el === opts.titleEl) continue
+        const hint = [
+          el.getAttribute('placeholder'),
+          el.getAttribute('data-placeholder'),
+          el.getAttribute('aria-label'),
+          el.getAttribute('name'),
+          el.className,
+        ]
+          .filter(Boolean)
+          .join(' ')
+        if (!TAG_HINT.test(hint)) continue
+        tagInput = el
+        break
+      }
+    }
+
+    if (tagInput) {
+      for (const tag of payload.tags.slice(0, 10)) {
+        if (tagInput.isContentEditable) {
+          setEditableText(tagInput, tag)
+        } else {
+          setNativeValue(tagInput as HTMLInputElement, tag)
+        }
+        await sleep(200)
+        // 大多数标签组件只认 Enter（keydown），点「添加」按钮的反而不多
+        for (const type of ['keydown', 'keyup']) {
+          tagInput.dispatchEvent(
+            new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true })
+          )
+        }
+        await sleep(320)
+      }
+      return true
+    }
+
+    if (payload.tagsInBody && opts.bodyEl) {
+      const bodyEl = opts.bodyEl
+      const doc = bodyEl.ownerDocument || document
+      const suffix = `<p>${payload.tags
+        .slice(0, 10)
+        .map(tag => `#${tag}`)
+        .join(' ')}</p>`
+      bodyEl.focus()
+      const selection = doc.getSelection()
+      if (selection) {
+        const range = doc.createRange()
+        range.selectNodeContents(bodyEl)
+        range.collapse(false)
+        selection.removeAllRanges()
+        selection.addRange(range)
+      }
+      let appended = false
+      try {
+        appended = doc.execCommand('insertHTML', false, suffix)
+      } catch {
+        appended = false
+      }
+      if (!appended) bodyEl.innerHTML = `${bodyEl.innerHTML}${suffix}`
+      await sleep(300)
+      return true
+    }
+
+    return false
+  }
+
+  // ── 0. 进入编辑器（小红书：写长文 → 新的创作）──
+  //
+  // 顺序是这一版最重要的修正：先点入口、先等编辑器出现，**等不到才判登录页**。
+  // 以前一进来就判登录，SPA 那一两秒什么都还没渲染，只要页面上有个隐藏的登录弹窗
+  // 就被判成「被重定向到登录页」—— 简书、企鹅号「明明登录了却说没登录」就是这个。
+  for (const step of payload.entrySteps) {
+    const clicked = await clickByTexts(step, { timeoutMs: 2500 })
+    if (!clicked) {
+      missing.push(`entry:${step[0]}`)
+      continue
+    }
+    // 每次点完等一拍，SPA 可能要跳路由 / 拉组件
+    await sleep(payload.stepWaitMs)
+  }
+
+  // ── 1. 编辑器是否已经就绪（先短等，别一上来就等满 20 秒）──
+  let titleEl = await waitFor<HTMLElement>(payload.titleSelectors, Math.min(payload.waitMs, 4000))
+  if (!titleEl) titleEl = findTitleByHint()
+
+  // ── 1b. 编辑器没出现，这时才判「是不是被踢到登录页」──
+  if (!titleEl && looksLikeLogin()) {
     return {
       ok: false,
       stage: 'needs_login',
@@ -597,29 +831,11 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     }
   }
 
-  // ── 1. 进入编辑器（小红书：写长文 → 新的创作）──
-  for (const step of payload.entrySteps) {
-    const clicked = await clickByTexts(step, { timeoutMs: 2500 })
-    if (!clicked) {
-      missing.push(`entry:${step[0]}`)
-      continue
-    }
-    // 每次点完等一拍，SPA 可能要跳路由 / 拉组件
-    await sleep(1200)
-    if (looksLikeLogin()) {
-      return {
-        ok: false,
-        stage: 'needs_login',
-        message: '点击进入编辑器后被要求登录，请先登录该平台再重新同步',
-        url: location.href,
-        finalUrl: location.href,
-      }
-    }
+  // ── 2. 标题（长等，重 SPA 经常要好几秒）──
+  if (!titleEl) {
+    titleEl = await waitFor<HTMLElement>(payload.titleSelectors, payload.waitMs)
+    if (!titleEl) titleEl = findTitleByHint()
   }
-
-  // ── 2. 标题（轮询等待，重 SPA 经常要好几秒）──
-  let titleEl = await waitFor<HTMLElement>(payload.titleSelectors, payload.waitMs)
-  if (!titleEl) titleEl = findTitleByHint()
 
   // ── 2b. 还停在后台首页：把「发布 / 写文章」这一步点出来 ──
   //
@@ -660,13 +876,7 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     }
   }
 
-  if (titleEl.isContentEditable) {
-    setEditableText(titleEl, payload.title)
-  } else {
-    titleEl.focus()
-    setNativeValue(titleEl as HTMLInputElement, payload.title)
-  }
-  await sleep(200)
+  await applyTitle(titleEl)
 
   // ── 3. 正文 ──
   let rawEditor = await waitFor<HTMLElement>(payload.editorSelectors, Math.min(payload.waitMs, 8000))
@@ -690,35 +900,8 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
     if (innerBody) editor = innerBody as unknown as HTMLElement
   }
 
-  editor.focus()
-  editor.click()
-  await sleep(200)
-
-  // 编辑器可能在 iframe 里，execCommand 必须用元素自己的文档执行
-  const editorDoc = editor.ownerDocument || document
-
-  // 先全选再插入：复用标签页时不会把上一次的内容留在前面造成重复
-  try {
-    editorDoc.execCommand('selectAll')
-  } catch {
-    // 忽略：不支持就算了，后面还有兜底
-  }
-
-  // 优先走 execCommand（能被富文本编辑器正确接管），失败再退回 innerHTML
-  let inserted = false
-  try {
-    inserted = editorDoc.execCommand('insertHTML', false, payload.html)
-  } catch {
-    inserted = false
-  }
-
-  if (!inserted || textLength(editor) < 10) {
-    editor.innerHTML = payload.html
-    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: payload.html, inputType: 'insertText' }))
-  }
-  await sleep(800)
-
-  if (textLength(editor) < 5) {
+  const bodyOk = await applyBody(editor)
+  if (!bodyOk) {
     return {
       ok: false,
       stage: 'failed',
@@ -728,6 +911,9 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
       finalUrl: location.href,
     }
   }
+
+  await applySummary()
+  await applyTags({ bodyEl: editor, titleEl })
 
   // ── 4. 图片 ──
   let imageCount = 0
@@ -779,19 +965,68 @@ export async function injectedPublish(payload: InjectedPublishPayload): Promise<
 
   // ── 6. 发布前整理（小红书长文：一键排版 → 下一步）──
   for (const step of payload.prepareSteps) {
-    const clicked = await clickByTexts(step, { timeoutMs: 4000 })
+    const clicked = await clickByTexts(step, { timeoutMs: 5000 })
     if (!clicked) missing.push(`prepare:${step[0]}`)
-    await sleep(1500)
+    await sleep(payload.stepWaitMs)
+  }
+
+  // ── 6b. 「下一步 / 预览」之后表单会重新挂载：内容被清空就再填一遍 ──
+  //
+  // 小红书长文是「一键排版 → 下一步 → 发布页」三段式，发布页是另一个组件，
+  // 标题、正文、标签全部重来。以前只填第一屏，点了「下一步」就等于交白卷。
+  if (payload.prepareSteps.length > 0) {
+    const reTitle = (await waitFor<HTMLElement>(payload.titleSelectors, 5000)) ?? findTitleByHint()
+    if (reTitle) {
+      const current = reTitle.isContentEditable
+        ? (reTitle.innerText || '').trim()
+        : ((reTitle as HTMLInputElement).value || '').trim()
+      if (!current) await applyTitle(reTitle)
+      titleEl = reTitle
+    }
+
+    const reEditor =
+      (await waitFor<HTMLElement>(payload.editorSelectors, 4000)) ?? findEditorByHeuristic(reTitle ?? titleEl)
+    if (reEditor && textLength(reEditor) < 5) {
+      await applyBody(reEditor)
+      editor = reEditor
+    }
+
+    await applySummary()
+    await applyTags({ bodyEl: editor, titleEl })
+  }
+
+  // prepareSteps 里可能已经点了发布（小红书把「发布笔记」放在最后一步），
+  // 这时页面会给出成功提示，不必再找一次发布按钮
+  if (payload.prepareSteps.length > 0 &&
+    /发布成功|已发布|发布完成|发表成功|提交成功/.test(document.body.innerText || '')) {
+    return {
+      ok: true,
+      stage: 'published',
+      message: '已点击发布并检测到成功反馈',
+      url: location.href,
+      finalUrl: location.href,
+    }
   }
 
   // ── 7. 发布 ──
   const beforeUrl = location.href
   const publishBtn = findClickable(payload.publishTexts)
   if (!publishBtn) {
+    // 有的平台把「发布」藏在「下一步」的最后一段（或刚点完就跳走了）。
+    // 先看页面是不是已经给了成功反馈，别一口咬定「没找到发布按钮」。
+    if (/发布成功|已发布|发布完成|发表成功/.test(document.body.innerText || '')) {
+      return {
+        ok: true,
+        stage: 'published',
+        message: '已发布（平台已给出成功提示）',
+        url: location.href,
+        finalUrl: location.href,
+      }
+    }
     return {
       ok: true,
       stage: 'filled',
-      message: '内容已填入编辑器，但没找到发布按钮，请手动点发布',
+      message: `内容已填入编辑器，但没找到发布按钮，请手动点发布（当前页面：${pageInfo()}）`,
       url: location.href,
       missing: [...missing, 'publish'],
       finalUrl: location.href,
@@ -1173,8 +1408,13 @@ export abstract class PagePublishAdapter extends CodeAdapter {
           title: article.title,
           html,
           images,
+          // 标签与摘要来自 AI 发布计划（platformBriefs），没有就留空
+          tags: article.tags ?? [],
+          summary: article.summary ?? '',
           titleSelectors: this.pageConfig.titleSelectors,
           editorSelectors: this.pageConfig.editorSelectors,
+          tagInputSelectors: this.pageConfig.tagInputSelectors ?? [],
+          tagsInBody: this.pageConfig.tagsInBody ?? false,
           publishTexts: this.pageConfig.publishTexts,
           draftTexts: this.pageConfig.draftTexts ?? [],
           confirmTexts: this.pageConfig.confirmTexts ?? [],
@@ -1186,6 +1426,7 @@ export abstract class PagePublishAdapter extends CodeAdapter {
           // 备用入口少等一会儿：前面已经用尽了主入口的等待时间，
           // 再各等 20 秒会让一次同步卡到分钟级
           waitMs: index === 0 ? (this.pageConfig.waitMs ?? 12000) : Math.min(this.pageConfig.waitMs ?? 12000, 8000),
+          stepWaitMs: this.pageConfig.stepWaitMs ?? 1200,
         })
 
         // 被踢到登录页：换入口也没用，直接让用户去登录
@@ -1193,6 +1434,9 @@ export abstract class PagePublishAdapter extends CodeAdapter {
           return this.createResult(false, {
             error: result.message || `需要先登录${this.meta.name}，再重新同步`,
             postUrl: result.finalUrl || entry.url,
+            // 标记登录态已失效：上层据此把缓存的「已登录」改掉，
+            // 免得界面一直显示已登录、用户反复点同步
+            authExpired: true,
           })
         }
 

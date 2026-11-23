@@ -16,7 +16,6 @@ export const PLATFORM_ICON_FILES: Record<string, string> = {
   'douban': 'douban.ico',
   'eastmoney': 'eastmoney.ico',
   'huangye88': 'huangye88.ico',
-  'huxiu': 'huxiu.png',
   'imooc': 'imooc.ico',
   'infoq': 'infoq.png',
   'ithome': 'ithome.png',

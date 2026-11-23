@@ -3,6 +3,7 @@ import { getPublishSettings } from '../../lib/publish-settings'
 import { extractArticleFromTab, describeExtractFailure } from '../../lib/tab-extractor'
 import { describeCaptureResult, isCaptureActive, type FeishuCaptureState } from '../../lib/feishu-capture'
 import { planTitleAdaptation, type TitlePlan } from '../../lib/title-strategy'
+import { planPublishBriefs, type BriefPlan } from '../../lib/publish-brief'
 import {
   buildDraftRefs,
   buildDraftOnlyMap,
@@ -637,6 +638,29 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       // ignore
     }
 
+    // 发布模式：让 AI 给每个平台写一份「怎么发」的计划（标题 / 摘要 / 标签）。
+    // 草稿不调模型 —— 草稿是半成品，没必要为它花调用，也没必要把 AI 痕迹留在里面。
+    let briefPlan: BriefPlan | null = null
+    if (mode === 'publish') {
+      try {
+        briefPlan = await planPublishBriefs({
+          title: article.title,
+          bodyText: article.markdown || article.content || article.html || '',
+          platforms: targets.map(id => ({ id, name: metaById.get(id)?.name || id })),
+        })
+        if (Object.keys(briefPlan.briefs).length) {
+          articleForSync = {
+            ...articleForSync,
+            platformBriefs: briefPlan.briefs,
+            // AI 的标题优先于规则截断：它是「换一种更短的说法」，不是硬切
+            platformTitles: { ...(articleForSync.platformTitles || {}), ...briefPlan.titles },
+          }
+        }
+      } catch {
+        // AI 不可用不影响发布：退回规则标题 + 不填标签
+      }
+    }
+
     if (mode === 'publish' && options.timing === 'schedule' && options.publishAt) {
       const publishAt = options.publishAt
       const scheduled = await requestScheduledJob({
@@ -684,11 +708,14 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       const publishedCount = results.filter(r => r.success && r.draftOnly === false).length
 
       const adjusted = titlePlan?.items.length || 0
+      const aiBriefs = briefPlan?.usedAI || 0
       const summary =
         (mode === 'draft'
           ? `已存为草稿：${draftCount} 个平台${failed ? `，${failed} 个失败` : ''}`
           : `发布完成：${publishedCount} 个平台${draftCount ? `，${draftCount} 个仅存草稿` : ''}${failed ? `，${failed} 个失败` : ''}`) +
-        (adjusted ? `；${adjusted} 个平台标题已按规则调整` : '')
+        (aiBriefs ? `；AI 已为 ${aiBriefs} 个平台生成标题/标签` : '') +
+        (adjusted ? `；${adjusted} 个平台标题已按规则调整` : '') +
+        (mode === 'publish' && briefPlan?.aiSkipReason ? `；${briefPlan.aiSkipReason}` : '')
 
       set(state => ({
         sync: { ...state.sync, running: false, results },

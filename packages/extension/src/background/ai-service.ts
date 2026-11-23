@@ -37,6 +37,23 @@ export type AITask =
       sourcePlatform?: string
     } & AITaskBase)
   | ({
+      /**
+       * 自动发布计划：一次产出该平台的标题 / 摘要 / 标签
+       *
+       * 自动发布一次要覆盖十几个平台，分开问「标题、摘要、标签」三遍会等三倍时间，
+       * 所以合成一个任务；解析失败时返回 null，调用方退回规则标题。
+       */
+      type: 'brief'
+      title: string
+      content: string
+      platform: string
+      platformName?: string
+      titleMax?: number
+      tagCount?: number
+      summaryMax?: number
+      styleHint?: string
+    } & AITaskBase)
+  | ({
       /** 正文加工：润色 / 扩写 / 精简 */
       type: 'rewrite'
       content: string
@@ -139,6 +156,23 @@ export async function runAITask(task: AITask): Promise<AIResponse<unknown>> {
       case 'tags': {
         const tags = await processor.suggestTags(task.content, task.platform)
         return { ok: true, data: tags }
+      }
+      case 'brief': {
+        if (!processor.planPublish) {
+          return { ok: false, error: '当前 AI 实现不支持发布计划' }
+        }
+        const brief = await processor.planPublish({
+          title: task.title,
+          content: task.content,
+          platformId: task.platform,
+          platformName: task.platformName || task.platform,
+          titleMax: task.titleMax,
+          tagCount: task.tagCount,
+          summaryMax: task.summaryMax,
+          styleHint: task.styleHint,
+        })
+        if (!brief) return { ok: false, error: 'AI 未能生成发布计划' }
+        return { ok: true, data: brief }
       }
       case 'adapt': {
         // 优先使用 Markdown 原文；只有 HTML 时先转换，保证模型看到的是结构化文本

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Cookie, RuntimeInterface } from '../../runtime/interface'
 import { ToutiaoAdapter } from '../platforms/toutiao'
-import { HuxiuAdapter, JiemianAdapter, TencentOmAdapter } from '../platforms/news-portals'
+import { JiemianAdapter, TencentOmAdapter } from '../platforms/news-portals'
 import { BafangAdapter } from '../platforms/b2b-directory'
 import { JianshuAdapter } from '../platforms/content-communities'
 import { InfoqAdapter, IthomeAdapter, KuaidongAdapter } from '../platforms/submission-draft'
@@ -201,24 +201,6 @@ describe('多主机平台：登录页与投稿后台分离', () => {
     const auth = await adapter.checkAuth()
     expect(auth.isAuthenticated).toBe(false)
     expect(auth.error).toContain('https://www.jiemian.com')
-  })
-
-  it('虎嗅入口在创作者后台，去登录送到门户 www.huxiu.com', async () => {
-    const diag = new HuxiuAdapter().getDiagnostics()
-    expect(diag.entryUrl).toContain('mp.huxiu.com')
-    // mp 是后台，未登录进去只有空白；门户才有登录入口
-    expect(diag.loginUrl).toBe('https://www.huxiu.com')
-    expect(diag.requiresAuth).toBe(true)
-  })
-
-  it('虎嗅未登录时，提示指向 www.huxiu.com', async () => {
-    const { runtime } = createRuntime({})
-    const adapter = new HuxiuAdapter()
-    await adapter.init(runtime)
-
-    const auth = await adapter.checkAuth()
-    expect(auth.isAuthenticated).toBe(false)
-    expect(auth.error).toContain('https://www.huxiu.com')
   })
 
   it('简书不再把游客也有的 read_mode 当成登录凭证', async () => {

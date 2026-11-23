@@ -4,7 +4,7 @@
  * 这四家都只有网页创作者后台，没有对外开放的发布 API，
  * 接口层还带风控，因此在页面上下文里填内容 —— 复用 PagePublishAdapter。
  *
- * 平台：网易号、企鹅号、虎嗅、界面新闻
+ * 平台：网易号、企鹅号、界面新闻
  *
  * 选择器策略：先写各自后台已知的结构，末尾一律补通用兜底
  * （contenteditable / textarea）。平台改版时兜底项通常还能命中；
@@ -122,6 +122,16 @@ export class TencentOmAdapter extends PagePublishAdapter {
     editorUrls: ['https://om.qq.com/article/index'],
     entryTexts: COMMON_ENTRIES,
     loginUrl: 'https://om.qq.com',
+    /**
+     * 企鹅号的登录态是腾讯通行证，Cookie 名随登录方式（QQ / 微信 / 企业微信）
+     * 换来换去，猜不干净。直接打开内容管理页看会不会被 302 到 userAuth —— 这是
+     * 「已登录但会话过期」唯一能测出来的地方（用户报「登录态失效」就是这个）。
+     */
+    authProbe: {
+      url: 'https://om.qq.com/article/index',
+      guestUrlHints: ['userAuth', '/login', 'ptlogin'],
+      authTexts: ['内容管理', '发布内容', '创作中心', '退出登录'],
+    },
     titleSelectors: [...COMMON_TITLES, '.article-title textarea', '.title-box input'],
     editorSelectors: [...COMMON_EDITORS, '.article-content', '.editor-content'],
     publishTexts: ['发布', '发表', '提交'],
@@ -144,48 +154,6 @@ export class TencentOmAdapter extends PagePublishAdapter {
     'RK',
     'wxuin',
     'wxsid',
-  ]
-}
-
-/**
- * 虎嗅 · 虎嗅号
- * 后台：mp.huxiu.com（申请入驻制，审核较严，发布后编辑择优推荐）
- *
- * 地址说明：`mp.huxiu.com/article/publish` 等深层地址现在全部 404
- * （nginx 直接给 404），后台是单页应用，只能从根域进。
- * 根域对无头请求会回 403（风控），真实浏览器里正常，所以只能靠
- * 「打开首页 → 点发布入口」这条路，并保留 authProbe 让登录态判定可靠。
- */
-export class HuxiuAdapter extends PagePublishAdapter {
-  readonly meta: PlatformMeta = {
-    id: 'huxiu',
-    name: '虎嗅',
-    icon: 'https://www.huxiu.com/favicon.ico',
-    homepage: 'https://mp.huxiu.com',
-    capabilities: ['article', 'draft', 'publish', 'image_upload'],
-  }
-
-  protected readonly pageConfig: PagePublishConfig = {
-    editorUrlMatch: 'mp.huxiu.com',
-    editorUrl: 'https://mp.huxiu.com/',
-    entryTexts: ['发布文章', '写文章', '新建文章', '我要投稿', '投稿', '发布'],
-    // 去登录要送到门户（www 有账号登录入口）；mp 只是创作者后台，
-    // 未登录时进去只有一片空白，用户找不到登录按钮。
-    loginUrl: 'https://www.huxiu.com',
-    authHosts: ['huxiu.com'],
-    titleSelectors: [...COMMON_TITLES, '.title-wrap input'],
-    editorSelectors: [...COMMON_EDITORS, '.editor-wrap'],
-    publishTexts: ['发布', '提交', '发表'],
-    extraWaitMs: 2500,
-  }
-
-  protected readonly sessionCookieNames = [
-    'huxiu_web_session',
-    'huxiu_session',
-    'huxiu_user',
-    'hxsuid',
-    'hxuid',
-    'springsid',
   ]
 }
 

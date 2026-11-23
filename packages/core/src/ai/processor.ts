@@ -11,6 +11,12 @@ import {
   type AIConfig,
 } from './client'
 import {
+  parsePublishBrief,
+  publishBriefPrompt,
+  type PublishBrief,
+  type PublishBriefInput,
+} from './publish-brief'
+import {
   SYSTEM_EDITOR,
   REWRITE_MODES,
   adaptPrompt,
@@ -125,6 +131,38 @@ export class OpenAIProcessor implements AIProcessor {
       .map(t => t.replace(/^[-*\d.\s#]+/, '').trim())
       .filter(t => t.length >= 2 && t.length <= 12)
       .slice(0, 8)
+  }
+
+  /**
+   * 自动发布计划：标题 / 摘要 / 标签一次问完
+   *
+   * 为什么合并成一次：分开问三次要等三个来回，同步一整轮会明显变慢；
+   * 而且标题和标签分开生成经常互相打架（标题说 A，标签全是 B）。
+   */
+  async planPublish(input: PublishBriefInput): Promise<PublishBrief | null> {
+    try {
+      const raw = await this.client.chat(
+        [
+          { role: 'system', content: SYSTEM_EDITOR },
+          {
+            role: 'user',
+            content: publishBriefPrompt({
+              ...input,
+              content: truncate(input.content, 8000),
+            }),
+          },
+        ],
+        { temperature: 0.6, maxTokens: 700 }
+      )
+      return parsePublishBrief(raw, {
+        title: input.title,
+        titleMax: input.titleMax,
+        tagCount: input.tagCount,
+      })
+    } catch {
+      // 自动发布不能因为模型挂了就停：调用方会退回规则标题
+      return null
+    }
   }
 
   /**

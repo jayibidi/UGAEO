@@ -1,6 +1,6 @@
 {
   "name": "@ugaeo/core",
-  "version": "2.8.4",
+  "version": "2.8.5",
   "description": "UGAEO 核心逻辑 - 平台适配器、运行时抽象、同步引擎",
   "main": "./src/index.ts",
   "module": "./src/index.ts",

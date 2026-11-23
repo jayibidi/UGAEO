@@ -72,14 +72,27 @@ export class XiaohongshuAdapter extends PagePublishAdapter {
     /** 长文编辑器的保存按钮 */
     draftTexts: ['存草稿', '保存草稿', '保存'],
 
-    /** 长文发布前必须先排版：一键排版 → 选模板（默认第一个）→ 下一步 */
+    /**
+     * 长文发布是「一键排版 → 下一步 → 发布页 → 发布笔记」四段式。
+     *
+     * 以前只写了「一键排版 → 下一步」，但文案在 A/B 里叫法不统一
+     * （一键排版 / 自动排版 / 智能排版），点不到就直接卡在编辑器里，
+     * 后面「发布笔记」那个按钮永远不会出现 —— 用户看到的就是「已提交但没发出去」。
+     */
     prepareSteps: [
-      ['一键排版'],
-      ['下一步', '确认并下一步'],
+      ['一键排版', '自动排版', '智能排版', '排版'],
+      ['下一步', '确认并下一步', '下一步预览', '预览'],
+      ['发布笔记', '立即发布', '发布'],
     ],
 
-    publishTexts: ['发布笔记', '发布'],
+    publishTexts: ['发布笔记', '立即发布', '发布'],
     confirmTexts: ['确认发布', '确定', '发布'],
+
+    /**
+     * 长文的话题写在正文末尾（`#话题`），没有独立标签框。
+     * AI 生成的标签交给这里追加，比硬找一个不存在的输入框可靠。
+     */
+    tagsInBody: true,
 
     /** 长文是纯文字，不强制图片；有图就顺手传 */
     requireImages: false,
@@ -87,6 +100,7 @@ export class XiaohongshuAdapter extends PagePublishAdapter {
     /** 长文编辑器是重 SPA，模板和编辑器要好几秒才挂载 */
     extraWaitMs: 3000,
     waitMs: 20000,
+    stepWaitMs: 2500,
   }
 
   protected readonly sessionCookieNames = [

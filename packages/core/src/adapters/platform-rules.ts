@@ -86,7 +86,6 @@ export const PLATFORM_RULES: Record<string, PlatformPublishRule> = {
   netease: { titleIdeal: [12, 28], titleStyle: '网易号：资讯口吻，点明事件与结果' },
   sohu: { titleIdeal: [12, 30], titleStyle: '搜狐号：资讯口吻，可带地域或行业限定词' },
   'tencent-om': { titleIdeal: [12, 28], titleStyle: '企鹅号：资讯口吻，克制、正向' },
-  huxiu: { titleIdeal: [12, 30], titleStyle: '虎嗅：有观点、敢下判断，但不夸张' },
   jiemian: { titleIdeal: [12, 30], titleStyle: '界面新闻：严肃财经口吻，突出事实与数据' },
   xueqiu: { titleIdeal: [10, 28], titleStyle: '雪球：投资视角，点明标的或结论，不荐股' },
   eastmoney: { titleIdeal: [10, 28], titleStyle: '东方财富：财经资讯口吻，突出数据或政策' },

@@ -11,7 +11,6 @@ import {
   BafangAdapter,
   BaiduZhidaoAdapter,
   Huangye88Adapter,
-  HuxiuAdapter,
   InfoqAdapter,
   IthomeAdapter,
   JianshuAdapter,
@@ -26,7 +25,6 @@ import {
 const NEW_PLATFORMS = [
   'netease',
   'tencent-om',
-  'huxiu',
   'jiemian',
   'jianshu',
   'smzdm',
@@ -143,9 +141,8 @@ describe('内容形态统计', () => {
       { id: 'jianshu' },
       { id: 'smzdm' },
       { id: 'netease' },
-      { id: 'huxiu' },
     ])
-    expect(counts).toEqual({ graphic: 2, news: 2 })
+    expect(counts).toEqual({ graphic: 2, news: 1 })
   })
 })
 
@@ -154,7 +151,6 @@ describe('新增适配器与分类表一致', () => {
   const CASES = [
     [NeteaseAdapter, 'netease', 'direct'],
     [TencentOmAdapter, 'tencent-om', 'direct'],
-    [HuxiuAdapter, 'huxiu', 'direct'],
     [JiemianAdapter, 'jiemian', 'direct'],
     [JianshuAdapter, 'jianshu', 'direct'],
     [SmzdmAdapter, 'smzdm', 'direct'],
@@ -166,7 +162,7 @@ describe('新增适配器与分类表一致', () => {
     [KuaidongAdapter, 'kuaidong', 'draft'],
   ] as const
 
-  it('13 个新增平台的 meta.id 都在分类表里', () => {
+  it('12 个新增平台的 meta.id 都在分类表里', () => {
     for (const [Adapter, expectedId] of CASES) {
       const adapter = new (Adapter as new () => { meta: { id: string; name: string } })()
       expect(adapter.meta.id).toBe(expectedId)
@@ -174,7 +170,7 @@ describe('新增适配器与分类表一致', () => {
     }
   })
 
-  it('层级与设计一致：6 个可直发、6 个仅草稿', () => {
+  it('层级与设计一致：5 个可直发、6 个仅草稿', () => {
     const actual = CASES.map(([Adapter, , layer]) => {
       const adapter = new (Adapter as new () => {
         meta: { id: string; capabilities: string[] }
@@ -186,7 +182,7 @@ describe('新增适配器与分类表一致', () => {
       expect(got, `${id} 层级不符`).toBe(want)
     }
     // 百度知道（问答形态）、八方 / 黄页88（B2B 多步表单）都没有文章编辑器，归「仅草稿」
-    expect(actual.filter(([, got]) => got === 'direct')).toHaveLength(6)
+    expect(actual.filter(([, got]) => got === 'direct')).toHaveLength(5)
     expect(actual.filter(([, got]) => got === 'draft')).toHaveLength(6)
   })
 

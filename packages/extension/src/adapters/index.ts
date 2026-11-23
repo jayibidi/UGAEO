@@ -136,10 +136,10 @@ export function getPlatformPreprocessConfigs(platformIds: string[]) {
 }
 
 // 缓存配置
-// v4：2.8.2 起登录检测多了「打开页面实测」（authProbe）与 authHosts，
-// 旧缓存里存的是按老逻辑算出来的结论（八方资源网/黄页88/快懂百科都还是错的），
-// key 升版让它们立即失效，否则用户要等 5 分钟 TTL 才看到正确状态。
-const AUTH_CACHE_KEY = 'authCache:v4'
+// v5：2.8.5 起注入脚本不再「一进来就判登录页」，企鹅号也加了页面实测，
+// 旧缓存里存的是误判出来的「已登录 / 未登录」，key 升版让它们立即失效，
+// 否则用户要等 5 分钟 TTL 才看到新结论（简书/企鹅号就是这么来回折腾的）。
+const AUTH_CACHE_KEY = 'authCache:v5'
 const AUTH_CACHE_TTL_AUTHENTICATED = 5 * 60 * 1000 // 已登录：5 分钟缓存
 const AUTH_CACHE_TTL_UNAUTHENTICATED = 30 * 1000 // 未登录：30 秒缓存（用户可能随时登录）
 const AUTH_CHECK_CONCURRENCY = 8 // 并行检查数量（平台 32 个，5 会让首轮检测明显偏慢）
@@ -165,6 +165,26 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string): 
         reject(error)
       })
   })
+}
+
+/**
+ * 把某个平台的登录态缓存标记为「已失效」
+ *
+ * 页面实测发现被踢回登录页时调用：缓存里的「已登录」是过期结论，
+ * 不立刻改掉的话，用户看到的是「已登录」但每次同步都失败。
+ */
+async function markAuthExpired(platformId: string): Promise<void> {
+  try {
+    const cache = await getCachedAuth()
+    cache[platformId] = {
+      isAuthenticated: false,
+      error: '登录态已失效，请重新登录',
+      timestamp: Date.now(),
+    }
+    await setCachedAuth(cache)
+  } catch {
+    // 缓存写失败不影响本次同步结果
+  }
 }
 
 /**
@@ -551,11 +571,20 @@ export async function syncToMultiplePlatforms(
       : undefined
 
     // 平台专属标题：规则适配 / AI 改写算出来的，只在这一条链路上覆盖
-    const overrideTitle = (article as Article & { platformTitles?: Record<string, string> })
-      .platformTitles?.[platformId]
-    const articleForPlatform = overrideTitle
-      ? { ...article, title: overrideTitle }
-      : article
+    const overrideTitle = article.platformTitles?.[platformId]
+
+    // AI 发布计划：该平台的摘要与标签（发布模式才会生成）
+    const brief = article.platformBriefs?.[platformId]
+    const articleForPlatform: Article = brief
+      ? {
+          ...article,
+          ...(overrideTitle ? { title: overrideTitle } : {}),
+          summary: brief.summary || article.summary,
+          tags: brief.tags.length ? brief.tags : article.tags,
+        }
+      : overrideTitle
+        ? { ...article, title: overrideTitle }
+        : article
 
     const result = await syncToPlatform(
       platformId,
@@ -563,6 +592,12 @@ export async function syncToMultiplePlatforms(
       { draftOnly: options?.draftOnlyByPlatform?.[platformId] ?? true },
       wrappedImageProgress
     )
+
+    // 登录态在页面实测里被判定失效：把缓存里的「已登录」改掉，
+    // 否则界面会一直显示已登录、用户反复点同步（简书 / 企鹅号就是这么折腾的）
+    if (result.authExpired) {
+      await markAuthExpired(platformId)
+    }
 
     if (overrideTitle && overrideTitle !== article.title) {
       result.titleNote = `标题按规则改为「${overrideTitle}」`

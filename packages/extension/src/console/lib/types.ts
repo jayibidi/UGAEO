@@ -84,6 +84,8 @@ export interface Article {
   tags?: string[]
   /** 按平台覆盖标题（规则适配 / AI 改写的结果） */
   platformTitles?: Record<string, string>
+  /** 按平台覆盖摘要 / 标签（AI 发布计划，立即发布时才生成） */
+  platformBriefs?: Record<string, { title: string; summary: string; tags: string[] }>
   /** 正文里的图片数（飞书提取时统计，用于提示「含 N 张图」） */
   imageCount?: number
   source?: { url?: string; platform?: string }

@@ -5,6 +5,18 @@
  * - markdown: 主要内容格式，由 content script 使用 Turndown + 原生 DOM 转换
  * - html: 可选的原始 HTML，某些平台可能需要
  */
+/**
+ * 单个平台的 AI 发布计划
+ *
+ * 结构与 `ai/publish-brief.ts` 的 PublishBrief 一致，这里内联一份是为了
+ * 让 types 不反过来依赖 ai 模块（ai 已经依赖 types，双向引会成环）。
+ */
+export interface PlatformBrief {
+  title: string
+  summary: string
+  tags: string[]
+}
+
 export interface Article {
   title: string
   markdown: string    // Markdown 格式内容（主要）
@@ -19,6 +31,12 @@ export interface Article {
   }
   /** 按平台覆盖标题（规则适配 / AI 改写的结果，同步时才生效） */
   platformTitles?: Record<string, string>
+  /**
+   * 按平台覆盖摘要 / 标签（AI 发布计划，自动发布时才会填）
+   *
+   * 只对「立即发布」生效：草稿模式没有意义，还会把 AI 的痕迹留在半成品里。
+   */
+  platformBriefs?: Record<string, PlatformBrief>
 }
 
 /**
@@ -48,6 +66,13 @@ export interface SyncResult {
   reviewChecked?: boolean
   /** 按平台规则 / AI 改过标题时的说明（原标题多少字、改成了什么） */
   titleNote?: string
+  /**
+   * 这次失败是因为登录态失效
+   *
+   * 页面实测发现被踢回登录页时置为 true：登录态缓存里的「已登录」是过期结论，
+   * 调用方要立刻把它改成未登录，否则界面一直显示已登录、同步一直失败。
+   */
+  authExpired?: boolean
   timestamp: number
 }
 

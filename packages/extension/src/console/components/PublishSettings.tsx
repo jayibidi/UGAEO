@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   ArrowRight,
@@ -13,6 +13,7 @@ import { useConsoleStore } from '../lib/store'
 import { PlatformIcon } from './PlatformBadge'
 import { SyncResults } from './SyncResults'
 import { TitleRulePreview } from './TitleRulePreview'
+import { getAISettings, isAIReady } from '../../lib/ai-settings'
 import {
   countUnauthenticated,
   draftPublishMode,
@@ -54,6 +55,23 @@ export function PublishSettings() {
   } = useConsoleStore()
 
   const busy = sync.running
+
+  // 立即发布要不要 AI，得先知道 AI 到底配好了没有：
+  // 没配就老实说「只用规则标题」，不能让用户以为点了 AI 就会改写
+  const [aiReady, setAiReady] = useState<boolean | null>(null)
+  useEffect(() => {
+    let alive = true
+    getAISettings()
+      .then(settings => {
+        if (alive) setAiReady(isAIReady(settings))
+      })
+      .catch(() => {
+        if (alive) setAiReady(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const publishable = useMemo(
     () => platforms.filter(platform => platform.isAuthenticated && isPublishable(platform)),
@@ -259,6 +277,18 @@ export function PublishSettings() {
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 只列出支持自动发布的平台。仅草稿的平台请切到「存为草稿」，同步后再到平台后台发布。
               </p>
+
+              {aiReady === false ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                  未配置 AI：这次只会用规则标题、不填标签。到「设置 → AI 模型」填好 Key，
+                  自动发布就会为每个平台生成标题 / 摘要 / 标签，并自动填进发布页后点发布。
+                </p>
+              ) : (
+                <p className="rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                  AI 会按各平台的标题上限、标签习惯生成标题 / 摘要 / 标签，自动填进发布页并点发布；
+                  平台改版导致点不到按钮时，会明确告诉你停在哪一页。
+                </p>
+              )}
 
               <div className="flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2 text-xs">
                 <span>已选 {selectedPublishable.length} 个可发布平台</span>

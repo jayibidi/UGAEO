@@ -25,7 +25,7 @@ import { ZipDownloadAdapter } from './zip-download'
 import { EastmoneyAdapter } from './eastmoney'
 import { ToutiaoAdapter } from './toutiao'
 import { XiaohongshuAdapter } from './xiaohongshu'
-import { NeteaseAdapter, TencentOmAdapter, HuxiuAdapter, JiemianAdapter } from './news-portals'
+import { NeteaseAdapter, TencentOmAdapter, JiemianAdapter } from './news-portals'
 import { JianshuAdapter, SmzdmAdapter, BaiduZhidaoAdapter } from './content-communities'
 import { BafangAdapter, Huangye88Adapter } from './b2b-directory'
 import { IthomeAdapter, InfoqAdapter, KuaidongAdapter } from './submission-draft'
@@ -54,7 +54,6 @@ export {
   XiaohongshuAdapter,
   NeteaseAdapter,
   TencentOmAdapter,
-  HuxiuAdapter,
   JiemianAdapter,
   JianshuAdapter,
   SmzdmAdapter,
@@ -99,7 +98,6 @@ export const BUILT_IN_ADAPTERS: AdapterConstructor[] = [
   XiaohongshuAdapter,
   NeteaseAdapter,
   TencentOmAdapter,
-  HuxiuAdapter,
   JiemianAdapter,
   JianshuAdapter,
   SmzdmAdapter,
