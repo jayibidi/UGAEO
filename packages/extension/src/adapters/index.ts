@@ -20,6 +20,7 @@ import {
 import {
   BUILT_IN_ADAPTERS,
   type AdapterConstructor,
+  type AuthCheckOptions,
   type PlatformAdapter,
   type PlatformMeta,
   type Article,
@@ -189,15 +190,18 @@ async function markAuthExpired(platformId: string): Promise<void> {
 
 /**
  * 检查平台登录状态
+ *
+ * 单个平台是「用户明确要看」的动作（点重新检测 / 自检 / 发布前确认），
+ * 默认允许开页实测；调用方传 `probe: false` 才关掉。
  */
-export async function checkPlatformAuth(platformId: string) {
+export async function checkPlatformAuth(platformId: string, options: AuthCheckOptions = { probe: true }) {
   const adapter = await getAdapter(platformId)
   if (!adapter) {
     return { isAuthenticated: false, error: 'Platform not found' }
   }
   try {
     return await withTimeout(
-      adapter.checkAuth(),
+      adapter.checkAuth(options),
       AUTH_CHECK_TIMEOUT,
       `认证检查超时（${AUTH_CHECK_TIMEOUT / 1000}秒）`
     )
@@ -247,8 +251,15 @@ export async function clearAuthCache(): Promise<void> {
 
 /**
  * 检查所有平台登录状态（带缓存，并行检查）
+ *
+ * 批量检查默认 **不开页实测**：调用它的都是列表渲染（控制台 / popup / 浏览器启动预检），
+ * 一开页用户就会看到八方资源网、企鹅号这些标签页自己弹出来又关掉。
+ * 需要真结论的单个平台走 checkPlatformAuth。
  */
-export async function checkAllPlatformsAuth(forceRefresh = false) {
+export async function checkAllPlatformsAuth(
+  forceRefresh = false,
+  options: AuthCheckOptions = { probe: false }
+) {
   await initAdapters()
 
   const metas = adapterRegistry.getAllMeta()
@@ -260,6 +271,7 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
       username?: string
       error?: string
       authMode?: 'cookie' | 'public'
+      needsProbe?: boolean
     }
   > = []
   const needsCheck: PlatformMeta[] = [] // 需要实际检查的平台
@@ -298,7 +310,7 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
           if (adapter) {
             logger.debug(` Checking auth for ${meta.id}...`)
             const auth = await withTimeout(
-              adapter.checkAuth(),
+              adapter.checkAuth({ probe: options.probe === true }),
               AUTH_CHECK_TIMEOUT,
               `认证检查超时（${AUTH_CHECK_TIMEOUT / 1000}秒）`
             )
@@ -307,13 +319,16 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
             // 追踪认证检查
             trackAuthCheck(meta.id, auth.isAuthenticated).catch(() => {})
 
-            // 更新缓存
-            cache[meta.id] = {
-              isAuthenticated: auth.isAuthenticated,
-              username: auth.username,
-              error: auth.error,
-              authMode: auth.authMode,
-              timestamp: now,
+            // 「待检测」不是结论，不写缓存：下一次显式检测要拿到真结果，
+            // 不能让它被一条假的「未登录」挡住 30 秒
+            if (!auth.needsProbe) {
+              cache[meta.id] = {
+                isAuthenticated: auth.isAuthenticated,
+                username: auth.username,
+                error: auth.error,
+                authMode: auth.authMode,
+                timestamp: now,
+              }
             }
 
             return {
@@ -322,6 +337,7 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
               username: auth.username,
               error: auth.error,
               authMode: auth.authMode,
+              needsProbe: auth.needsProbe,
             }
           }
           return { ...meta, isAuthenticated: false, error: 'Adapter not found' }

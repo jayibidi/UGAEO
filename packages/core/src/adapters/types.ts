@@ -1,4 +1,4 @@
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../types'
+import type { Article, AuthCheckOptions, AuthResult, SyncResult, PlatformMeta } from '../types'
 import type { RuntimeInterface } from '../runtime/interface'
 
 /**
@@ -194,8 +194,8 @@ export interface PlatformAdapter {
   /** 初始化适配器 */
   init(runtime: RuntimeInterface): Promise<void>
 
-  /** 检查认证状态 */
-  checkAuth(): Promise<AuthResult>
+  /** 检查认证状态（options.probe = false 时不许开标签页实测） */
+  checkAuth(options?: AuthCheckOptions): Promise<AuthResult>
 
   /** 发布文章 */
   publish(article: Article, options?: PublishOptions): Promise<SyncResult>

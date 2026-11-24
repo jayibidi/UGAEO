@@ -49,7 +49,9 @@ export function OverviewPage() {
   // 本地工具（Markdown 压缩包）不是平台，不能占登录率的分母
   const dslPlatforms = platforms.filter(p => p.sourceType !== 'cms' && !isLocalToolPlatform(p.id))
   const authed = dslPlatforms.filter(p => p.isAuthenticated)
-  const unauthed = dslPlatforms.filter(p => !p.isAuthenticated)
+  // 「待检测」不是未登录：它们的登录态只能开页实测（企鹅号 / 简书 / 八方资源网）
+  const unauthed = dslPlatforms.filter(p => !p.isAuthenticated && !p.needsProbe)
+  const pendingProbes = dslPlatforms.filter(p => p.needsProbe === true)
   const failures = useMemo(() => collectFailures(history, 7), [history])
   const weekSyncs = useMemo(
     () => history.filter(item => (item.endTime || item.startTime) > Date.now() - 7 * 86400000),
@@ -140,7 +142,14 @@ export function OverviewPage() {
       {unauthed.length > 0 && (
         <div className="uga-card p-5">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-medium">未登录平台（{unauthed.length}）</h2>
+            <h2 className="text-sm font-medium">
+              未登录平台（{unauthed.length}）
+              {pendingProbes.length > 0 && (
+                <span className="ml-1 font-normal text-muted-foreground">
+                  · {pendingProbes.length} 个待检测
+                </span>
+              )}
+            </h2>
             <Link to="/accounts" className="text-xs text-primary hover:underline">
               账号管理
             </Link>

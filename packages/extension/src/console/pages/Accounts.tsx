@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
+  Eye,
   Globe,
   Loader2,
   LogIn,
@@ -26,6 +27,7 @@ export function AccountsPage() {
     checkingId,
     refreshPlatforms,
     recheckOne,
+    probePending,
     openPlatform,
     deleteCmsAccount,
     testCmsConnection,
@@ -58,7 +60,10 @@ export function AccountsPage() {
 
   // 用户去别的标签页登录完切回来时，自动重测一次还在「未登录」的平台
   const lastFocusCheck = useRef(0)
-  const hasUnauthed = dslPlatforms.some(p => !p.isAuthenticated)
+  // 待检测（needsProbe）不算「未登录」：它们只能靠开页实测，反复自动刷新也不会有结论，
+  // 只会让界面一直转圈
+  const hasUnauthed = dslPlatforms.some(p => !p.isAuthenticated && !p.needsProbe)
+  const pendingProbes = dslPlatforms.filter(p => p.needsProbe === true)
   useEffect(() => {
     const onFocus = () => {
       if (document.hidden || !hasUnauthed) return
@@ -74,7 +79,8 @@ export function AccountsPage() {
     }
   }, [hasUnauthed, refreshPlatforms])
 
-  const runCmsTest = async (id: string) => {    setTestingId(id)
+  const runCmsTest = async (id: string) => {
+    setTestingId(id)
     const result = await testCmsConnection(id)
     setTestResult(prev => ({ ...prev, [id]: result }))
     setTestingId(null)
@@ -129,6 +135,18 @@ export function AccountsPage() {
           ))}
         </div>
 
+        {pendingProbes.length > 0 && (
+          <button
+            className="uga-btn-secondary"
+            onClick={() => probePending()}
+            disabled={checkingAll}
+            title="这些平台的登录态只能开页实测，会依次打开后台标签页并自动关闭"
+          >
+            {checkingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+            实测 {pendingProbes.length} 个待检测
+          </button>
+        )}
+
         <button className="uga-btn-primary" onClick={() => refreshPlatforms(true)} disabled={checkingAll}>
           {checkingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           全部重新检测
@@ -180,6 +198,7 @@ export function AccountsPage() {
                         authed={platform.isAuthenticated}
                         username={platform.username}
                         authMode={platform.authMode}
+                        needsProbe={platform.needsProbe}
                       />
                     </div>
                   </div>
@@ -204,7 +223,7 @@ export function AccountsPage() {
                   </button>
                 </div>
 
-                {!platform.isAuthenticated && (
+                {!platform.isAuthenticated && !platform.needsProbe && (
                   <div className="mt-2 space-y-1">
                     <p className="text-[11px] leading-relaxed text-muted-foreground">{loginHint(platform.name)}</p>
                     {platform.error && (

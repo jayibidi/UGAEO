@@ -7,7 +7,6 @@ import {
   getAdapter,
   getPlatformPreprocessConfigs,
 } from '../adapters'
-import { CONSOLE_URL } from '@ugaeo/core'
 import * as wordpressAdapter from '../adapters/cms/wordpress'
 import * as metaweblogAdapter from '../adapters/cms/metaweblog'
 import { startMcpClient, stopMcpClient, getMcpStatus, mcpClient } from '../mcp/client'
@@ -74,8 +73,8 @@ type CMSType = 'wordpress' | 'typecho' | 'metaweblog'
 // 消息类型
 type MessageAction =
   | { type: 'GET_PLATFORMS' }
-  | { type: 'CHECK_ALL_AUTH'; payload?: { forceRefresh?: boolean } }
-  | { type: 'CHECK_AUTH'; payload: { platformId: string } }
+  | { type: 'CHECK_ALL_AUTH'; payload?: { forceRefresh?: boolean; probe?: boolean } }
+  | { type: 'CHECK_AUTH'; payload: { platformId: string; probe?: boolean } }
   | { type: 'SYNC_ARTICLE'; payload: { article: any; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string; draftOnlyByPlatform?: Record<string, boolean> } }
   | { type: 'OPEN_SYNC_PAGE'; path?: string }
   | { type: 'OPEN_CONSOLE'; payload?: { path?: string } }
@@ -173,7 +172,9 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
 
     case 'CHECK_ALL_AUTH': {
       const forceRefresh = message.payload?.forceRefresh ?? false
-      const dslPlatforms = await checkAllPlatformsAuth(forceRefresh)
+      // 批量刷新默认不实测：会开一堆平台标签页。只有调用方明确要（自检 / 手动检测）才放行
+      const probe = message.payload?.probe === true
+      const dslPlatforms = await checkAllPlatformsAuth(forceRefresh, { probe })
 
       // 为 DSL 平台添加 sourceType
       const dslWithType = dslPlatforms.map((p: any) => ({
@@ -205,8 +206,9 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     }
 
     case 'CHECK_AUTH': {
-      const { platformId } = message.payload
-      const auth = await checkPlatformAuth(platformId)
+      const { platformId, probe } = message.payload
+      // 单平台检查是用户明确动作，默认允许开页实测
+      const auth = await checkPlatformAuth(platformId, { probe: probe !== false })
       return { auth }
     }
 
@@ -688,7 +690,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       const tabId = sender?.tab?.id
       if (!tabId) return { success: false }
 
-      const dslPlatforms = await checkAllPlatformsAuth(false)
+      const dslPlatforms = await checkAllPlatformsAuth(false, { probe: false })
       const dslWithType = dslPlatforms.map((p: any) => ({
         ...p,
         sourceType: 'dsl' as const,
@@ -1013,28 +1015,32 @@ chrome.runtime.onInstalled.addListener(async details => {
     recordInstallTimestamp().catch(() => {})
   }
 
-  // 升级时打开 changelog 页面
+  // 首次安装 / 升级后的落地页一律用扩展内自带控制台。
+  // 以前指向远端 https://api.ugooto-ai.com/console，那个地址会 302 到 /login，
+  // 用户装完扩展先看到一张登录页，还以为扩展要注册才能用。
+  const localConsoleUrl = chrome.runtime.getURL('src/console/index.html')
+
+  // 升级时打开更新日志（重要版本才弹）
   if (details.reason === 'update') {
     const previousVersion = details.previousVersion || '0.0.0'
     const currentVersion = chrome.runtime.getManifest().version
 
-    // 重要版本升级时显示更新日志
     const showChangelogVersions = ['2.0.8', '2.0.9']
     if (
       showChangelogVersions.includes(currentVersion) ||
       (previousVersion.startsWith('1.') && currentVersion.startsWith('2.'))
     ) {
       chrome.tabs.create({
-        url: `${CONSOLE_URL}?from=${previousVersion}&to=${currentVersion}`,
+        url: localConsoleUrl,
         active: true,
       })
     }
   }
 
-  // 首次安装时打开欢迎页
+  // 首次安装时打开控制台
   if (details.reason === 'install') {
     chrome.tabs.create({
-      url: CONSOLE_URL,
+      url: localConsoleUrl,
       active: true,
     })
   }
@@ -1086,7 +1092,7 @@ initMcpIfEnabled()
 async function preCheckPlatformsAuth() {
   logger.info(' Pre-checking platform auth...')
   try {
-    await checkAllPlatformsAuth(false) // 使用缓存，不强制刷新
+    await checkAllPlatformsAuth(false, { probe: false }) // 只查 Cookie 缓存，绝不在启动时开平台标签页
     logger.info(' Pre-check completed')
   } catch (error) {
     logger.error(' Pre-check failed:', error)

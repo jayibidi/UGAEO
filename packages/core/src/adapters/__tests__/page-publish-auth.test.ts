@@ -381,3 +381,59 @@ describe('没有编辑器的平台不再谎报「无需登录」', () => {
     expect(new KuaidongAdapter().meta.capabilities).not.toContain('publish')
   })
 })
+
+describe('被动刷新不许开标签页', () => {
+  /** 带 tabs 的 runtime：被动刷新只要调了 tabs.create 就算失败 */
+  function createProbeRuntime(): { runtime: RuntimeInterface; opened: string[] } {
+    const { runtime } = createRuntime({})
+    const opened: string[] = []
+    ;(runtime as unknown as Record<string, unknown>).tabs = {
+      query: async () => [],
+      create: async (url: string) => {
+        opened.push(url)
+        return { id: 1 }
+      },
+      waitForLoad: async () => {},
+      executeScript: async () => null,
+      remove: async () => {},
+    }
+    return { runtime, opened }
+  }
+
+  it('probe: false 时不打开页面，返回 needsProbe 而不是「未登录」', async () => {
+    const { runtime, opened } = createProbeRuntime()
+    const adapter = new JianshuAdapter()
+    await adapter.init(runtime)
+
+    const auth = await adapter.checkAuth({ probe: false })
+
+    expect(opened).toHaveLength(0)
+    expect(auth.isAuthenticated).toBe(false)
+    expect(auth.needsProbe).toBe(true)
+    // 不能谎报成「未登录」：提示要说清是「需要实测」
+    expect(auth.error).toContain('实测')
+  })
+
+  it('probe: true 时照常实测（这是用户点重新检测的路径）', async () => {
+    const { runtime, opened } = createProbeRuntime()
+    const adapter = new JianshuAdapter()
+    await adapter.init(runtime)
+
+    await adapter.checkAuth({ probe: true })
+
+    expect(opened.length).toBeGreaterThan(0)
+  })
+
+  it('声明的登录 Cookie 命中时，probe: false 也直接算已登录', async () => {
+    const { runtime, opened } = createProbeRuntime()
+    ;(runtime as unknown as { cookies: { get: unknown } }).cookies.get = async (target: string) =>
+      target.includes('jian') ? [cookie('remember_user_token', 'x', '.jianshu.com')] : []
+    const adapter = new JianshuAdapter()
+    await adapter.init(runtime)
+
+    const auth = await adapter.checkAuth({ probe: false })
+
+    expect(opened).toHaveLength(0)
+    expect(auth.isAuthenticated).toBe(true)
+  })
+})

@@ -20,6 +20,7 @@ import {
   countUnauthenticated,
   draftPublishMode,
   isAIPublishable,
+  isPlatformUsable,
   isPublishable,
   isScheduleValid,
   parseDateTimeLocal,
@@ -81,7 +82,7 @@ export function PublishSettings() {
   const publishable = useMemo(
     () =>
       platforms.filter(
-        platform => !isLocalToolPlatform(platform.id) && platform.isAuthenticated && canAutoPublish(platform)
+        platform => !isLocalToolPlatform(platform.id) && isPlatformUsable(platform) && canAutoPublish(platform)
       ),
     [platforms]
   )

@@ -157,3 +157,24 @@ describe('定时时间', () => {
     expect(isScheduleValid(null, base)).toBe(false)
   })
 })
+
+describe('登录态待检测的平台', () => {
+  const jianshu = platform({ id: 'jianshu', name: '简书', isAuthenticated: false, needsProbe: true })
+
+  it('发布模式：待检测的平台不锁住（它们的登录态要开页实测才知道）', () => {
+    const { selectable } = splitPlatformsByMode([zhihu, jianshu], 'publish')
+    expect(selectable.map(p => p.id)).toEqual(['zhihu', 'jianshu'])
+  })
+
+  it('发布模式：明确未登录的平台仍然不进列表', () => {
+    const { selectable } = splitPlatformsByMode([zhihu, offline], 'publish')
+    expect(selectable.map(p => p.id)).toEqual(['zhihu'])
+  })
+
+  it('待检测的词条平台进「锁定」组，不会被当成可以自动发布', () => {
+    const bafang = platform({ id: 'bafang', name: '八方资源网', isAuthenticated: false, needsProbe: true, noEditor: true })
+    const { selectable, locked } = splitPlatformsByMode([zhihu, bafang], 'publish')
+    expect(selectable.map(p => p.id)).toEqual(['zhihu'])
+    expect(locked.map(p => p.id)).toEqual(['bafang'])
+  })
+})

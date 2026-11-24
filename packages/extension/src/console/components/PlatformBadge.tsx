@@ -8,12 +8,24 @@ export function AuthPill({
   authed,
   username,
   authMode,
+  needsProbe,
 }: {
   authed: boolean
   username?: string
   /** 'public' 表示平台不需要登录，不能显示成「已登录」 */
   authMode?: 'cookie' | 'public'
+  /** 登录态只能在页面上实测，被动刷新拿不到结论 */
+  needsProbe?: boolean
 }) {
+  if (needsProbe && !authed) {
+    return (
+      <span className="uga-chip bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        待检测 · 点「重新检测」
+      </span>
+    )
+  }
+
   if (authed && authMode === 'public') {
     return (
       <span className="uga-chip bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">

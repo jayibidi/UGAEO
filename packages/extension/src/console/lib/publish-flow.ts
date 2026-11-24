@@ -32,6 +32,17 @@ export function canAutoPublish(platform: Platform): boolean {
   return !isManualOnly(platform)
 }
 
+/**
+ * 平台现在算不算「可用」
+ *
+ * 已登录，或者登录态还没测出来（needsProbe）。后者不能当成未登录藏起来：
+ * 企鹅号 / 简书这类平台的登录态在服务端 Session 里，被动刷新拿不到结论，
+ * 得用户点「重新检测」开页实测才算数。
+ */
+export function isPlatformUsable(platform: Platform): boolean {
+  return platform.isAuthenticated || platform.needsProbe === true
+}
+
 /** 平台能否把「已存在的草稿」直接发布（而不必重新创建一篇） */
 export function canPublishExistingDraft(platform: Platform): boolean {
   return !!platform.capabilities?.includes('publish_existing_draft')
@@ -45,6 +56,9 @@ export function canPublishExistingDraft(platform: Platform): boolean {
  * - publish：已登录 + 能自动发布（可直发 11 + AI 自动发布 14 = 25），
  *   只剩第三层「词条平台」锁住 —— 它们没有文章编辑器，AI 也没有按钮可点
  *
+ * 「待检测」（needsProbe）的也算可选：它们的登录态要开页实测才知道，被动刷新
+ * 拿不到结论。放进列表让用户勾，真发的时候脚本自己会处理登录跳转，比直接藏掉强。
+ *
  * `zip-download` 是本地导出工具而不是平台，账号 / 概览 / 自检各处都排除它，这里同口径。
  */
 export function splitPlatformsByMode(
@@ -55,9 +69,10 @@ export function splitPlatformsByMode(
   if (mode === 'draft') {
     return { selectable: usable, locked: [] }
   }
+  const usableNow = (platform: Platform) => isPlatformUsable(platform)
   return {
-    selectable: usable.filter(platform => platform.isAuthenticated && canAutoPublish(platform)),
-    locked: usable.filter(platform => platform.isAuthenticated && isManualOnly(platform)),
+    selectable: usable.filter(platform => usableNow(platform) && canAutoPublish(platform)),
+    locked: usable.filter(platform => usableNow(platform) && isManualOnly(platform)),
   }
 }
 

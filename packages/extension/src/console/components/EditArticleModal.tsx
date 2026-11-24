@@ -305,7 +305,9 @@ export function EditArticleModal({
                           <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} size={16} />
                           <span className="truncate">{platform.name}</span>
                           {!platform.isAuthenticated && (
-                            <span className="ml-auto flex-shrink-0 text-[10px] text-muted-foreground">未登录</span>
+                            <span className="ml-auto flex-shrink-0 text-[10px] text-muted-foreground">
+                              {platform.needsProbe ? '待检测' : '未登录'}
+                            </span>
                           )}
                         </label>
                       )

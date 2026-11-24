@@ -43,6 +43,9 @@ const HANDOFF_TTL = 30 * 60 * 1000
 
 export type PublishTiming = 'now' | 'schedule'
 
+/** 全量登录态刷新的在途请求：boot() 与账号页 focus 监听会同时触发，共用一个即可 */
+let refreshInFlight: Promise<void> | null = null
+
 /** 定时队列里的一条任务（只保留界面要展示的字段） */
 export interface ScheduledJobInfo {
   id: string
@@ -93,6 +96,13 @@ interface ConsoleState {
   boot: () => Promise<void>
   refreshPlatforms: (force?: boolean) => Promise<void>
   recheckOne: (platformId: string) => Promise<void>
+  /**
+   * 逐个实测所有「待检测」平台
+   *
+   * 用户明确点了才会走这条路：它会顺序打开后台标签页（一次一个），
+   * 被动刷新绝不这么干。
+   */
+  probePending: () => Promise<void>
   openPlatform: (platform: { homepage: string }) => void
 
   setArticle: (article: Article | null) => void
@@ -299,40 +309,62 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
   },
 
   refreshPlatforms: async (force = false) => {
+    // 控制台启动时 boot() 和账号页的 focus 监听会各调一次，并发跑两遍全量检测
+    // 既慢又互相覆盖缓存；共用同一个 Promise 就够了
+    if (refreshInFlight) {
+      await refreshInFlight
+      // 被动刷新排队就够了；「全部重新检测」得真的再跑一遍
+      if (!force) return
+    }
+
     if (force) set({ checkingAll: true })
     set({ loadingPlatforms: true })
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'CHECK_ALL_AUTH',
-        payload: { forceRefresh: force },
-      })
-      if (response?.error) throw new Error(response.error)
 
-      const platforms: Platform[] = (response?.platforms || []) as Platform[]
-      set({
-        platforms,
-        lastCheckedAt: Date.now(),
-        cmsAccounts: ((await chrome.storage.local.get('cmsAccounts')).cmsAccounts || []) as CmsAccount[],
-      })
+    const task = (async () => {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'CHECK_ALL_AUTH',
+          // probe: false —— 打开控制台 / 切回窗口都是被动刷新，绝不能顺手开一堆平台标签页
+          payload: { forceRefresh: force, probe: false },
+        })
+        if (response?.error) throw new Error(response.error)
 
-      // 已登录集合变了，裁掉失效的选中项
-      const authed = new Set(platforms.filter(p => p.isAuthenticated).map(p => p.id))
-      const nextSelected = get().selectedPlatforms.filter(id => authed.has(id))
-      if (nextSelected.length !== get().selectedPlatforms.length) {
-        set({ selectedPlatforms: nextSelected })
-        saveSelectedPlatforms(nextSelected)
+        const platforms: Platform[] = (response?.platforms || []) as Platform[]
+        set({
+          platforms,
+          lastCheckedAt: Date.now(),
+          cmsAccounts: ((await chrome.storage.local.get('cmsAccounts')).cmsAccounts || []) as CmsAccount[],
+        })
+
+        // 已登录集合变了，裁掉失效的选中项（待检测的保留，用户点检测还能救回来）
+        const authed = new Set(
+          platforms.filter(p => p.isAuthenticated || p.needsProbe).map(p => p.id)
+        )
+        const nextSelected = get().selectedPlatforms.filter(id => authed.has(id))
+        if (nextSelected.length !== get().selectedPlatforms.length) {
+          set({ selectedPlatforms: nextSelected })
+          saveSelectedPlatforms(nextSelected)
+        }
+      } catch (error) {
+        set({ notice: { kind: 'error', text: `登录状态检测失败：${(error as Error).message}` } })
+      } finally {
+        set({ loadingPlatforms: false, checkingAll: false })
+        refreshInFlight = null
       }
-    } catch (error) {
-      set({ notice: { kind: 'error', text: `登录状态检测失败：${(error as Error).message}` } })
-    } finally {
-      set({ loadingPlatforms: false, checkingAll: false })
-    }
+    })()
+
+    refreshInFlight = task
+    return task
   },
 
   recheckOne: async (platformId) => {
     set({ checkingId: platformId })
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'CHECK_AUTH', payload: { platformId } })
+      // 用户点了「重新检测」——这里才允许开页实测，也是唯一会开标签页的入口
+      const response = await chrome.runtime.sendMessage({
+        type: 'CHECK_AUTH',
+        payload: { platformId, probe: true },
+      })
       const auth = response?.auth
       if (!auth) throw new Error('未返回检测结果')
 
@@ -343,6 +375,8 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
               isAuthenticated: !!auth.isAuthenticated,
               authMode: auth.authMode ?? p.authMode,
               username: auth.username || p.username,
+              // 这次是实测的结论，待检测标记要清掉，否则界面一直挂着「待检测」
+              needsProbe: auth.needsProbe === true ? p.needsProbe : undefined,
               // 已登录也保留备注（如「主站已登录但未开通财富号」），便于排查
               error: auth.error,
             }
@@ -366,6 +400,26 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
       set({ notice: { kind: 'error', text: `检测失败：${(error as Error).message}` } })
     } finally {
       set({ checkingId: null })
+    }
+  },
+
+  probePending: async () => {
+    const pending = get().platforms.filter(platform => platform.needsProbe)
+    if (!pending.length) return
+
+    set({ checkingAll: true })
+    try {
+      for (let i = 0; i < pending.length; i++) {
+        set({
+          notice: {
+            kind: 'info',
+            text: `正在实测登录态（${i + 1}/${pending.length}）：${pending[i].name}`,
+          },
+        })
+        await get().recheckOne(pending[i].id)
+      }
+    } finally {
+      set({ checkingAll: false, notice: null })
     }
   },
 

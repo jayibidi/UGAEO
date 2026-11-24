@@ -52,6 +52,8 @@ interface Platform {
   icon: string
   homepage: string
   isAuthenticated: boolean
+  /** 登录态要开页实测才知道（企鹅号 / 简书这类服务端 Session 平台） */
+  needsProbe?: boolean
   username?: string
   avatar?: string
   // 区分平台类型：dsl 为 DSL 定义的平台，cms 为自建站点
@@ -290,9 +292,9 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       // CHECK_ALL_AUTH 现在返回 DSL 和 CMS 合并的列表
       const platformResponse = await chrome.runtime.sendMessage({ type: 'CHECK_ALL_AUTH' })
 
-      // 只保留已认证的平台
+      // 已认证的平台 + 待检测的平台（待检测不能直接丢掉，否则企鹅号 / 简书在弹窗里会凭空消失）
       const allPlatforms: Platform[] = (platformResponse.platforms || [])
-        .filter((p: any) => p.isAuthenticated)
+        .filter((p: any) => p.isAuthenticated || p.needsProbe)
 
       // 加载保存的平台选择和隐藏配置
       const savedSelections = await loadSelectedPlatforms()
@@ -416,7 +418,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   selectAll: () => {
     const { platforms, hiddenPlatforms } = get()
     const allIds = platforms
-      .filter(p => p.isAuthenticated && !hiddenPlatforms.includes(p.id))
+      .filter(p => (p.isAuthenticated || p.needsProbe) && !hiddenPlatforms.includes(p.id))
       .map(p => p.id)
     set({ selectedPlatforms: allIds })
     // 保存到 storage

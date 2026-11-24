@@ -2,7 +2,13 @@ import { LogIn, Check, Lock } from 'lucide-react'
 import { isLocalToolPlatform } from '@ugaeo/core'
 import { useConsoleStore } from '../lib/store'
 import { AuthPill, PlatformIcon, PublishCapability } from './PlatformBadge'
-import { isAIPublishable, isPublishable, splitPlatformsByMode } from '../lib/publish-flow'
+import {
+  canAutoPublish,
+  isAIPublishable,
+  isPlatformUsable,
+  isPublishable,
+  splitPlatformsByMode,
+} from '../lib/publish-flow'
 
 /**
  * 平台选择器
@@ -29,8 +35,14 @@ export function PlatformPicker() {
   // 发布模式下把「能自动发布」的两层拆开展示：可直发 / AI 自动发布
   const directCount = selectable.filter(isPublishable).length
   const aiCount = selectable.filter(isAIPublishable).length
+  // 待检测的平台不列进「未登录」提示：它们不是没登录，只是还没测
   const unauthed = isPublishMode
-    ? platforms.filter(platform => !platform.isAuthenticated && !isLocalToolPlatform(platform.id))
+    ? platforms.filter(
+        platform =>
+          !isPlatformUsable(platform) &&
+          !isLocalToolPlatform(platform.id) &&
+          canAutoPublish(platform)
+      )
     : []
   if (!platforms.length) {
     return (
@@ -109,7 +121,9 @@ export function PlatformPicker() {
                           ? platform.homepage
                           : platform.isAuthenticated
                             ? '已登录'
-                            : '未登录 · 同步前先登录')}
+                            : platform.needsProbe
+                              ? '登录态待检测 · 发布时确认'
+                              : '未登录 · 同步前先登录')}
                     </span>
                   </span>
                   <PublishCapability platform={platform} />

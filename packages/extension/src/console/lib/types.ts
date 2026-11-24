@@ -30,6 +30,14 @@ export interface Platform {
    * 这类平台 isAuthenticated 为 true（可用），但界面必须显示「无需登录」。
    */
   authMode?: 'cookie' | 'public'
+  /**
+   * 登录态还没测出来，需要点「重新检测」开页实测
+   *
+   * 企鹅号 / 简书 / 八方资源网这类平台的登录态在服务端 Session 里，Cookie 名猜不出来。
+   * 被动刷新时不许开标签页，所以只能先标「待检测」——既不当成未登录踢出列表，
+   * 也不假装已登录。
+   */
+  needsProbe?: boolean
 }
 
 export interface CmsAccount {

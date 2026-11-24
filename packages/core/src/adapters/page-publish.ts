@@ -26,7 +26,7 @@
  */
 import { CodeAdapter } from './code-adapter'
 import type { RuntimeInterface } from '../runtime/interface'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../types'
+import type { Article, AuthCheckOptions, AuthResult, SyncResult, PlatformMeta } from '../types'
 import type { AdapterDiagnostics, PublishOptions } from './types'
 import { createLogger } from '../lib/logger'
 
@@ -1139,13 +1139,17 @@ export abstract class PagePublishAdapter extends CodeAdapter {
    *
    * 第 3 级只给没配实测的平台用：它把「真的登录了但 Cookie 名对不上」救回来，
    * 但也可能被游客的通行证 Cookie 骗到。能实测的平台就不赌这一把。
+   *
+   * `options.probe === false`（被动刷新）时不许开标签页：配了实测的平台直接报
+   * 「待检测」（needsProbe），既不开页也不猜——界面上仍会显示它、点一下就能测。
    */
-  async checkAuth(): Promise<AuthResult> {
+  async checkAuth(options: AuthCheckOptions = {}): Promise<AuthResult> {
     if (!this.requiresAuth) {
       // 公开投稿表单：可用，但不是「已登录」——authMode 让界面显示「无需登录」
       return { isAuthenticated: true, authMode: 'public' }
     }
 
+    const allowProbe = options.probe !== false
     const editorUrl = this.pageConfig.editorUrl
     const loginUrl = this.pageConfig.loginUrl ?? editorUrl
     const failure = (): AuthResult => ({
@@ -1161,6 +1165,14 @@ export abstract class PagePublishAdapter extends CodeAdapter {
       }
 
       if (this.pageConfig.authProbe) {
+        if (!allowProbe) {
+          return {
+            isAuthenticated: false,
+            needsProbe: true,
+            error: `需要打开 ${new URL(this.pageConfig.authProbe.url).origin} 实测登录态，点「重新检测」确认`,
+          }
+        }
+
         const probed = await this.probeAuth()
         if (probed !== null) {
           logger.debug(`[${this.meta.id}] 登录态实测：${probed ? '已登录' : '未登录'}`)

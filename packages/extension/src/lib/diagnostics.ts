@@ -66,10 +66,14 @@ export async function diagnosePlatforms(options: DiagnoseOptions = {}): Promise<
     isAuthenticated?: boolean
     username?: string
     authMode?: 'cookie' | 'public'
+    needsProbe?: boolean
   }> = []
   let authError: string | null = null
   try {
-    authList = await checkAllPlatformsAuth(options.forceRefresh ?? false)
+    // 自检是用户主动点的，允许开页实测拿真结论；不点就只查 Cookie
+    authList = await checkAllPlatformsAuth(options.forceRefresh ?? false, {
+      probe: options.forceRefresh === true,
+    })
   } catch (error) {
     authError = (error as Error).message
     logger.error('批量登录态检查失败:', authError)
@@ -91,6 +95,7 @@ export async function diagnosePlatforms(options: DiagnoseOptions = {}): Promise<
 
       const auth = authMap.get(meta.id)
       const isAuthenticated = !!auth?.isAuthenticated
+      const needsProbe = auth?.needsProbe === true
       const authMode = auth?.authMode
       const capabilities = meta.capabilities ?? []
       const layer = resolvePublishLayer(meta)
@@ -138,7 +143,9 @@ export async function diagnosePlatforms(options: DiagnoseOptions = {}): Promise<
         issues.push(`登录态检查整体失败：${authError}`)
       }
       const publiclyOpen = !diag.requiresAuth || authMode === 'public'
-      if (diag.requiresAuth && !isAuthenticated) {
+      if (needsProbe) {
+        issues.push('登录态待实测（这类平台的登录态在服务端 Session 里，点「重新检测」开页确认）')
+      } else if (diag.requiresAuth && !isAuthenticated) {
         issues.push('未登录（正常，去平台登录后点重新检测）')
       }
 
@@ -153,7 +160,7 @@ export async function diagnosePlatforms(options: DiagnoseOptions = {}): Promise<
           if (isAuthenticated && foundCookies.length === 0) {
             issues.push('✖ 登录态说已登录，但入口域查不到声明的 Cookie（缓存可能过期，点重新检测）')
           }
-          if (!isAuthenticated && foundCookies.length > 0) {
+          if (!isAuthenticated && !needsProbe && foundCookies.length > 0) {
             issues.push('✖ 查到了登录 Cookie 却判未登录（判断逻辑可能写错）')
           }
           // 只命中游客标识（__ckguid 这种）时，登录判断多半是乐观误判

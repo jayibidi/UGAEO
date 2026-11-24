@@ -93,6 +93,27 @@ export interface AuthResult {
    *   但界面必须显示「无需登录」——不能谎报成「已登录」。
    */
   authMode?: 'cookie' | 'public'
+  /**
+   * 这次没测出结论，需要开标签页实测一次（`checkAuth({ probe: false })` 的产物）
+   *
+   * 有些平台（企鹅号 / 简书 / 八方资源网 …）的登录态在服务端 Session 里，
+   * 只能打开页面看，Cookie 名猜不出来。被动刷新（打开控制台、浏览器启动预检）
+   * 时不允许开标签页，就只能报「待检测」，不能谎报「未登录」。
+   */
+  needsProbe?: boolean
+}
+
+/**
+ * 登录态检查选项
+ */
+export interface AuthCheckOptions {
+  /**
+   * 是否允许「开页实测」登录态，默认允许
+   *
+   * 实测要开一个真标签页（后台标签也算），所以只给用户明确动作放行：
+   * 单个平台点「重新检测」、自检、发布前确认。列表被动刷新一律关掉。
+   */
+  probe?: boolean
 }
 
 /**
