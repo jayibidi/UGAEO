@@ -8,6 +8,7 @@
  * 默认对接 Ugooto AI 中转站。
  */
 import { AI_BASE_URL } from '../endpoints'
+import { extractEndpointTypes } from './model-catalog'
 
 /** 默认中转站地址（OpenAI 兼容，含 /v1）；域名统一由 endpoints.ts 提供 */
 export const DEFAULT_AI_BASE_URL = AI_BASE_URL
@@ -43,6 +44,29 @@ export interface ChatOptions {
 export interface ModelInfo {
   id: string
   ownedBy?: string
+  /** 网关声明的能力（NewAPI 系 `supported_endpoint_types`），用于区分文本 / 生图模型 */
+  endpoints?: string[]
+}
+
+export interface GenerateImageOptions {
+  /** 生图模型名；不传用客户端默认模型 */
+  model?: string
+  /** 形如 1024x1024，不传则由服务端取默认尺寸 */
+  size?: string
+  /** 出图张数，默认 1 */
+  n?: number
+  timeout?: number
+  signal?: AbortSignal
+}
+
+export interface GeneratedImage {
+  /** 接口直接返回 base64 时给出的 dataURL */
+  dataUrl?: string
+  /** 接口只给图片地址时给出的 URL，由调用方决定要不要下载 */
+  url?: string
+  /** 部分模型会返回改写后的提示词 */
+  revisedPrompt?: string
+  model: string
 }
 
 /** AI 请求错误，带可读的中文提示 */
@@ -193,10 +217,22 @@ export class OpenAICompatibleClient {
       throw new AIError(describeHttpError(response.status, await readErrorBody(response)), response.status)
     }
 
-    const data = (await response.json()) as { data?: Array<{ id?: string; owned_by?: string }> }
-    const models = (data.data || [])
-      .filter(m => typeof m.id === 'string' && m.id)
-      .map(m => ({ id: m.id as string, ownedBy: m.owned_by }))
+    const payload = (await response.json()) as
+      | { data?: Array<Record<string, unknown>> }
+      | Array<Record<string, unknown>>
+    // 少数网关直接返回数组，别因为少一层 data 就报「拉不到模型」
+    const rows = Array.isArray(payload) ? payload : payload.data || []
+
+    const models = rows
+      .filter(m => typeof m?.id === 'string' && m.id)
+      .map(m => {
+        const endpoints = extractEndpointTypes(m)
+        return {
+          id: m.id as string,
+          ownedBy: typeof m.owned_by === 'string' ? m.owned_by : undefined,
+          ...(endpoints.length ? { endpoints } : {}),
+        }
+      })
 
     return models.sort((a, b) => a.id.localeCompare(b.id))
   }
@@ -245,6 +281,72 @@ export class OpenAICompatibleClient {
   }
 
   /**
+   * 文生图（OpenAI 兼容 POST /images/generations）
+   *
+   * 中转站之间差异很大，这里做三件保命的事：
+   * 1. 先要 b64_json；部分网关不认 response_format，400 且错误信息提到它时去掉重试一次
+   * 2. b64 / url 两种返回都接（url 由调用方决定要不要下载成 dataURL）
+   * 3. 没拿到图就报可读的中文错误，而不是把 JSON 解析异常抛给用户
+   */
+  async generateImage(prompt: string, options: GenerateImageOptions = {}): Promise<GeneratedImage> {
+    const text = prompt.trim()
+    if (!text) throw new AIError('请先描述你想要的配图')
+
+    const model = options.model?.trim() || this.defaultModel
+    const buildBody = (withFormat: boolean) => ({
+      model,
+      prompt: text,
+      n: options.n ?? 1,
+      ...(options.size ? { size: options.size } : {}),
+      ...(withFormat ? { response_format: 'b64_json' } : {}),
+    })
+
+    const request = (withFormat: boolean) =>
+      this.fetchWithTimeout(
+        buildUrl(this.baseUrl, '/images/generations'),
+        {
+          method: 'POST',
+          headers: this.headers(),
+          body: JSON.stringify(buildBody(withFormat)),
+        },
+        options.timeout ?? this.timeout,
+        options.signal
+      )
+
+    let response = await request(true)
+    if (response.status === 400) {
+      const body = await readErrorBody(response)
+      // 只有确实卡在 response_format 上才重试；尺寸/提示词不合规要原样报给用户
+      if (/response_format|b64|unknown (field|parameter)/i.test(body)) {
+        response = await request(false)
+      } else {
+        throw new AIError(describeHttpError(400, body), 400)
+      }
+    }
+
+    if (!response.ok) {
+      throw new AIError(describeHttpError(response.status, await readErrorBody(response)), response.status)
+    }
+
+    const payload = (await response.json()) as {
+      data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>
+      images?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>
+      error?: { message?: string }
+    }
+    if (payload.error?.message) throw new AIError(payload.error.message)
+
+    const first = payload.data?.[0] ?? payload.images?.[0]
+    const b64 = first?.b64_json?.trim()
+    if (b64) {
+      return { dataUrl: base64ToDataUrl(b64), revisedPrompt: first?.revised_prompt, model }
+    }
+    if (first?.url) {
+      return { url: first.url, revisedPrompt: first?.revised_prompt, model }
+    }
+    throw new AIError('生图接口没有返回图片，请确认所选模型支持 /images/generations')
+  }
+
+  /**
    * 连通性测试：发一条极短的请求
    */
   async test(): Promise<{ ok: boolean; model: string; latency: number; sample?: string }> {
@@ -263,6 +365,20 @@ export class OpenAICompatibleClient {
       sample: content.trim().slice(0, 50),
     }
   }
+}
+
+/**
+ * base64 图片转 dataURL
+ *
+ * 接口不一定声明 mime，按文件头猜：PNG `iVBOR`、JPEG `/9j/`、WebP `UklGR`、GIF `R0lGOD`。
+ */
+function base64ToDataUrl(base64: string): string {
+  if (/^data:/i.test(base64)) return base64
+  let mime = 'image/png'
+  if (base64.startsWith('/9j/')) mime = 'image/jpeg'
+  else if (base64.startsWith('UklGR')) mime = 'image/webp'
+  else if (base64.startsWith('R0lGOD')) mime = 'image/gif'
+  return `data:${mime};base64,${base64}`
 }
 
 /**

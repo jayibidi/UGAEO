@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckSquare, Loader2, Save, Send, Square, X } from 'lucide-react'
+import { CheckSquare, Loader2, Save, Send, Square, Undo2, X } from 'lucide-react'
+import type { DraftResult } from '@ugaeo/core'
 import { useConsoleStore } from '../lib/store'
 import { contentKind } from '../lib/format'
+import { compressDataUrl } from '../lib/image'
+import { AISettingsDialog } from './AISettingsDialog'
+import { AiComposePanel } from './AiComposePanel'
 import { PlatformIcon, ResultPill } from './PlatformBadge'
 import { MarkdownEditor } from './MarkdownEditor'
 import { splitPlatformsByMode, countUnauthenticated } from '../lib/publish-flow'
@@ -63,6 +67,17 @@ export function EditArticleModal({
   const [cover, setCover] = useState<string | undefined>()
   const [sourceUrl, setSourceUrl] = useState<string | undefined>()
 
+  // AI 设置弹窗与「撤销 AI 生成」快照
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
+  const [aiFocus, setAiFocus] = useState<'text' | 'image'>('text')
+  const [aiUndo, setAiUndo] = useState<{
+    title: string
+    summary: string
+    tags: string
+    body: string
+    format: 'markdown' | 'html'
+  } | null>(null)
+
   // 打开时才读取 props 快照，避免父组件每次渲染传入新数组导致表单被重置
   const propsRef = useRef({ initialArticle, defaultPlatforms, defaultMode })
   propsRef.current = { initialArticle, defaultPlatforms, defaultMode }
@@ -77,6 +92,8 @@ export function EditArticleModal({
     setRunning(false)
     setTargets(initialTargets)
     setMode(initialMode)
+    setAiUndo(null)
+    setAiSettingsOpen(false)
 
     const apply = (article: Article | null) => {
       if (cancelled) return
@@ -147,6 +164,43 @@ export function EditArticleModal({
     onSave?.(article)
     setNotice({ kind: 'ok', text: article.title ? `已保存《${article.title}》` : '已保存草稿内容' })
     onClose()
+  }
+
+  /** 应用 AI 生成的整篇稿：先把当前内容存快照，用户不满意可以一键退回 */
+  const applyDraft = (draft: DraftResult) => {
+    setAiUndo({ title, summary, tags, body, format })
+    setTitle(draft.title || title)
+    setSummary(draft.summary || '')
+    if (draft.tags?.length) setTags(draft.tags.join(', '))
+    setFormat('markdown')
+    setBody(draft.markdown)
+    setSnapshotMissing(false)
+  }
+
+  const undoDraft = () => {
+    if (!aiUndo) return
+    setTitle(aiUndo.title)
+    setSummary(aiUndo.summary)
+    setTags(aiUndo.tags)
+    setBody(aiUndo.body)
+    setFormat(aiUndo.format)
+    setAiUndo(null)
+    setNotice({ kind: 'info', text: '已撤销 AI 生成，内容退回生成前' })
+  }
+
+  /** 把生成的配图插到正文末尾（按当前格式写 Markdown / HTML） */
+  const insertImage = (dataUrl: string) => {
+    void (async () => {
+      const src = await compressDataUrl(dataUrl)
+      setBody(prev => {
+        const snippet =
+          format === 'markdown'
+            ? `\n\n![AI 配图](${src})\n`
+            : `\n<p><img src="${src}" alt="AI 配图" /></p>`
+        return prev.trim() ? `${prev.trimEnd()}${snippet}` : snippet.trimStart()
+      })
+      setSnapshotMissing(false)
+    })()
   }
 
   useEffect(() => {
@@ -233,7 +287,38 @@ export function EditArticleModal({
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">正文</label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-medium text-muted-foreground">正文</label>
+                  {aiUndo && (
+                    <button
+                      type="button"
+                      onClick={undoDraft}
+                      className="uga-btn-ghost flex items-center gap-1 px-1.5 py-0.5 text-[11px]"
+                      title="退回 AI 生成前的内容"
+                    >
+                      <Undo2 className="h-3 w-3" />
+                      撤销 AI 生成
+                    </button>
+                  )}
+                </div>
+
+                <div className="mb-2">
+                  <AiComposePanel
+                    title={title}
+                    hasBody={body.trim().length > 0}
+                    onApplyDraft={applyDraft}
+                    onInsertImage={insertImage}
+                    onSetCover={dataUrl => {
+                      void compressDataUrl(dataUrl).then(setCover)
+                    }}
+                    onOpenSettings={focus => {
+                      setAiFocus(focus)
+                      setAiSettingsOpen(true)
+                    }}
+                    onNotice={(text, kind) => setNotice({ kind: kind ?? 'info', text })}
+                  />
+                </div>
+
                 <MarkdownEditor
                   value={body}
                   onChange={setBody}
@@ -424,6 +509,12 @@ export function EditArticleModal({
           </div>
         </footer>
       </div>
+
+      <AISettingsDialog
+        open={aiSettingsOpen}
+        onClose={() => setAiSettingsOpen(false)}
+        focus={aiFocus}
+      />
     </div>
   )
 }

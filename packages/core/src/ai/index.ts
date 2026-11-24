@@ -12,6 +12,8 @@ import type { RewriteMode } from './prompts'
 export * from './client'
 export * from './prompts'
 export * from './publish-brief'
+export * from './draft'
+export * from './model-catalog'
 export { OpenAIProcessor, htmlToPlainText } from './processor'
 export type { AdaptOptions } from './processor'
 
@@ -62,6 +64,13 @@ export interface AIProcessor {
    * 调用方据此退回「规则标题 + 不填标签」，自动发布照常进行。
    */
   planPublish?(input: import('./publish-brief').PublishBriefInput): Promise<import('./publish-brief').PublishBrief | null>
+
+  /**
+   * 从标题 / 提示词生成整篇稿子（编辑器 AI 文案框）
+   *
+   * 可选能力 —— 没实现时调用方退回「只优化标题」。
+   */
+  generateDraft?(input: import('./draft').DraftInput): Promise<import('./draft').DraftResult>
 
   /**
    * 正文加工（润色 / 扩写 / 精简）

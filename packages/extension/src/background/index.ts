@@ -52,7 +52,7 @@ import {
   BADGE_COLORS,
   type ActiveSyncState,
 } from './sync-service'
-import { runAITask, listModels, testConnection, type AITask } from './ai-service'
+import { runAITask, listModels, listModelLibrary, testConnection, type AITask } from './ai-service'
 import {
   addScheduledJob,
   cancelScheduledJob,
@@ -100,6 +100,7 @@ type MessageAction =
   | { type: 'GET_PREPROCESS_CONFIGS'; platforms: string[] }
   | { type: 'TRIGGER_OPEN_EDITOR' }
   | { type: 'AI_LIST_MODELS'; payload?: { baseUrl?: string; apiKey?: string } }
+  | { type: 'AI_LIST_MODEL_LIBRARY'; payload?: { baseUrl?: string; apiKey?: string } }
   | { type: 'AI_TEST'; payload?: { baseUrl?: string; apiKey?: string; model?: string } }
   | { type: 'AI_TASK'; payload: AITask }
   | {
@@ -723,6 +724,11 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
 
     case 'AI_LIST_MODELS': {
       return await listModels(message.payload)
+    }
+
+    case 'AI_LIST_MODEL_LIBRARY': {
+      // 设置页要「文本模型 / 生图模型」两个下拉，一次拉取分好组
+      return await listModelLibrary(message.payload)
     }
 
     case 'AI_TEST': {

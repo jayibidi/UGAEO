@@ -16,6 +16,7 @@ import {
   type PublishBrief,
   type PublishBriefInput,
 } from './publish-brief'
+import { draftPrompt, parseDraft, type DraftInput, type DraftResult } from './draft'
 import {
   SYSTEM_EDITOR,
   REWRITE_MODES,
@@ -163,6 +164,28 @@ export class OpenAIProcessor implements AIProcessor {
       // 自动发布不能因为模型挂了就停：调用方会退回规则标题
       return null
     }
+  }
+
+  /**
+   * 从标题 / 提示词生成整篇稿子
+   *
+   * 编辑器「AI 文案」框用：一次调用同时给出标题、摘要、标签与 Markdown 正文，
+   * 避免生成完正文再补三次请求（用户等不起，也白花 token）。
+   */
+  async generateDraft(input: DraftInput): Promise<DraftResult> {
+    const raw = await this.client.chat(
+      [
+        { role: 'system', content: SYSTEM_EDITOR },
+        { role: 'user', content: draftPrompt(input) },
+      ],
+      { temperature: 0.8, maxTokens: 4096 }
+    )
+
+    const result = parseDraft(raw, input.title || input.prompt)
+    if (!result) {
+      throw new Error('AI 没有返回可用的文稿，请重试或更换文本模型')
+    }
+    return result
   }
 
   /**

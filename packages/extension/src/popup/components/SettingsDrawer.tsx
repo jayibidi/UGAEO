@@ -4,6 +4,7 @@ import {
   Sparkles, Rocket, KeyRound, RefreshCw, Loader2, CheckCircle2, AlertCircle, Timer,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { pickDefaultModel, type ModelCatalog } from '@ugaeo/core'
 import { PlatformIcon } from '../../components/platform-icon'
 import { trackFeatureDiscovery } from '../../lib/analytics'
 import {
@@ -322,15 +323,39 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
     setAiMessage(null)
     try {
       const response = await chrome.runtime.sendMessage({
-        type: 'AI_LIST_MODELS',
+        type: 'AI_LIST_MODEL_LIBRARY',
         payload: { baseUrl: ai.baseUrl, apiKey: ai.apiKey },
       })
       if (!response?.ok) throw new Error(response?.error || '拉取失败')
-      const models: string[] = response.data || []
-      const nextModel = ai.model && models.includes(ai.model) ? ai.model : models[0] || ai.model
-      setAi(prev => prev ? { ...prev, models, model: nextModel } : prev)
-      await saveAISettings({ models, model: nextModel })
-      setAiMessage({ type: 'ok', text: `已拉取 ${models.length} 个模型` })
+      const catalog = response.data as ModelCatalog
+
+      // 文本模型 / 生图模型各留一个：当前选中的还在列表里就不动，否则用偏好规则挑一个
+      const nextModel = catalog.chat.includes(ai.model)
+        ? ai.model
+        : pickDefaultModel(catalog.chat, 'chat') || ai.model
+      const nextImageModel = catalog.image.includes(ai.imageModel)
+        ? ai.imageModel
+        : pickDefaultModel(catalog.image, 'image') || ai.imageModel
+
+      setAi(prev => prev ? {
+        ...prev,
+        models: catalog.chat,
+        imageModels: catalog.image,
+        model: nextModel,
+        imageModel: nextImageModel,
+      } : prev)
+      await saveAISettings({
+        models: catalog.chat,
+        imageModels: catalog.image,
+        model: nextModel,
+        imageModel: nextImageModel,
+      })
+
+      const how = catalog.metaAvailable ? '' : '（网关没给能力声明，按名称识别）'
+      setAiMessage({
+        type: 'ok',
+        text: `已拉取 ${catalog.total} 个模型 · 文本 ${catalog.chat.length} / 生图 ${catalog.image.length}${how}`,
+      })
     } catch (error) {
       setAiMessage({ type: 'error', text: (error as Error).message })
     } finally {
@@ -655,8 +680,10 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-muted-foreground">模型</label>
+                <div className="flex flex-wrap items-center justify-between gap-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    文本模型（排版 / 文案 / 识图）
+                  </label>
                   <button
                     onClick={fetchModels}
                     disabled={aiBusy !== null}
@@ -665,7 +692,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                     {aiBusy === 'models'
                       ? <Loader2 className="w-3 h-3 animate-spin" />
                       : <RefreshCw className="w-3 h-3" />}
-                    拉取模型
+                    拉取模型库
                   </button>
                 </div>
                 {ai && ai.models.length > 0 ? (
@@ -691,7 +718,39 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                   />
                 )}
                 <p className="text-[10px] text-muted-foreground">
-                  可填任意模型名；拉取后可从列表中选择不同模型
+                  用于标题、摘要、标签、一键成稿与平台适配；拉取模型库后可从列表选
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">
+                  生图模型（AI 配图）
+                </label>
+                {ai && ai.imageModels.length > 0 ? (
+                  <select
+                    value={ai.imageModel}
+                    onChange={(e) => updateAi({ imageModel: e.target.value }, true)}
+                    className="w-full bg-muted/50 p-2 rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">未选择（AI 配图不可用）</option>
+                    {!ai.imageModels.includes(ai.imageModel) && ai.imageModel && (
+                      <option value={ai.imageModel}>{ai.imageModel}（自定义）</option>
+                    )}
+                    {ai.imageModels.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={ai?.imageModel ?? ''}
+                    onChange={(e) => updateAi({ imageModel: e.target.value })}
+                    placeholder="doubao-seedream-4-0-250828"
+                    className="w-full bg-muted/50 p-2 rounded border border-border text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  编辑器「AI 配图」用这个模型，走 /images/generations；不选则配图功能不可用
                 </p>
               </div>
 

@@ -161,3 +161,23 @@ describe('EditArticleModal 编辑器', () => {
     expect(html).toContain('从这里开始写')
   })
 })
+
+describe('EditArticleModal 的 AI 面板', () => {
+  it('正文上方有「文案 / 配图」两个模式与对应提示语', () => {
+    setState()
+    const html = render({ purpose: 'save' })
+
+    expect(html).toContain('文案')
+    expect(html).toContain('配图')
+    expect(html).toContain('输入标题或提示词，让 AI 帮你生成文稿…')
+    // 篇幅档位只在文案模式下有意义
+    expect(html).toContain('篇幅')
+  })
+
+  it('文案模式默认不提交（没输入内容，按钮禁用）', () => {
+    setState()
+    const html = render({ purpose: 'save' })
+    const sendButton = html.match(/<button[^>]*title="生成（Enter 发送[^>]*>/)
+    expect(sendButton?.[0]).toContain('disabled')
+  })
+})

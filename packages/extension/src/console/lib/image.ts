@@ -56,7 +56,6 @@ function loadBitmap(file: File): Promise<{ width: number; height: number; draw: 
 export async function imageToDataUrl(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) throw new Error('不是图片文件')
   if (file.type === 'image/gif') return readAsDataUrl(file)
-
   const bitmap = await loadBitmap(file)
   try {
     const scale = Math.min(1, MAX_WIDTH / bitmap.width)
@@ -84,5 +83,23 @@ export async function imageToDataUrl(file: File): Promise<string> {
     return blob.size < file.size ? readAsDataUrl(blob) : readAsDataUrl(file)
   } finally {
     bitmap.close()
+  }
+}
+
+/**
+ * 压缩 AI 生成的图片 dataURL
+ *
+ * 生图接口给的多是 1024×1024 的 PNG（1~3 MB），直接内联进正文会让
+ * chrome.storage 里的文章快照暴涨、同步时往平台传也慢。统一转成 JPEG 0.82。
+ * 压失败就返回原图 —— 宁可大一点，也不能因为压缩把这张图弄丢。
+ */
+export async function compressDataUrl(dataUrl: string): Promise<string> {
+  try {
+    const blob = await (await fetch(dataUrl)).blob()
+    if (!blob.size) return dataUrl
+    const file = new File([blob], 'ai-image.png', { type: blob.type || 'image/png' })
+    return await imageToDataUrl(file)
+  } catch {
+    return dataUrl
   }
 }
