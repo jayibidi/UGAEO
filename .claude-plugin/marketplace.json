@@ -8,7 +8,7 @@
     {
       "name": "sync",
       "source": "./",
-      "version": "2.8.7",
+      "version": "2.9.0",
       "description": "Sync articles to 34+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
       "author": {
         "name": "jayibidi",
