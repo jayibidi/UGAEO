@@ -88,16 +88,21 @@ export class WeixinAdapter extends CodeAdapter {
       const html = await response.text()
 
       const tokenMatch = html.match(/data:\s*\{[\s\S]*?t:\s*["']([^"']+)["']/)
-      if (!tokenMatch) {
-        logger.debug(' No token found')
-        return { isAuthenticated: false }
-      }
-
-      const ticketMatch = html.match(/ticket:\s*["']([^"']+)["']/)
       const userNameMatch = html.match(/user_name:\s*["']([^"']+)["']/)
+      const ticketMatch = html.match(/ticket:\s*["']([^"']+)["']/)
       const nickNameMatch = html.match(/nick_name:\s*["']([^"']+)["']/)
       const timeMatch = html.match(/time:\s*["'](\d+)["']/)
       const headImgMatch = html.match(/head_img:\s*['"]([^'"]+)['"]/)
+
+      // 未登录的首页里也有 `t: "https://res.wx.qq.com/..."` 这种资源地址，
+      // 只匹配「t」会把游客判成已登录（显示已登录、同步时才被踢回登录页）。
+      // 真登录必须同时满足：t 是真 token（不是 URL）+ user_name 非空（gh_ 开头的原始 id）
+      const token = tokenMatch?.[1] ?? ''
+      const userName = userNameMatch?.[1] ?? ''
+      if (!token || /^https?:/i.test(token) || !userName) {
+        logger.debug(' Not logged in: no token / user_name')
+        return { isAuthenticated: false }
+      }
 
       const avatarMatch = html.match(/class="weui-desktop-account__thumb"[^>]*src="([^"]+)"/)
       let avatar = avatarMatch ? avatarMatch[1] : (headImgMatch ? headImgMatch[1] : '')
@@ -106,8 +111,8 @@ export class WeixinAdapter extends CodeAdapter {
       }
 
       this.weixinMeta = {
-        token: tokenMatch[1],
-        userName: userNameMatch ? userNameMatch[1] : '',
+        token,
+        userName,
         nickName: nickNameMatch ? nickNameMatch[1] : '',
         ticket: ticketMatch ? ticketMatch[1] : '',
         svrTime: timeMatch ? Number(timeMatch[1]) : Date.now() / 1000,

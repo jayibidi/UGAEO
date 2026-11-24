@@ -1085,6 +1085,9 @@ const NON_SESSION_COOKIE = new RegExp(
       's_v_web_id', 'msToken', 'ttwid', '__ac_nonce', '__ac_signature', 'ab_sr', 'ssxmod_itna',
       'noads_', 'statistic', 'monitor', '__root_domain_v', 'client_id', 'device_id', 'visitor_id',
       'accept_language', 'lang', 'locale', 'theme', 'resolution', 'timezone',
+      // 游客也有的设备/访客 ID（百度系最典型：没登录也有 BAIDUID，httpOnly 的
+      // BAIDUID_BFESS 还会被当成「会话 Cookie」，百度知道就这么被误判成已登录）
+      'BAIDUID', 'BAIDUID_BFESS', 'BIDUPSID', 'tt_webid',
       // 通用「会话容器」ID：Java / .NET / PHP 建会话时游客就会拿到，
       // 只能证明「来过」，不能证明「登录了」。八方资源网、黄页88 这类老后台尤其常见。
       'JSESSIONID', 'ASP.NET_SessionId', 'PHPSESSID',

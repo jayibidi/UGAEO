@@ -3,7 +3,7 @@ import type { Cookie, RuntimeInterface } from '../../runtime/interface'
 import { ToutiaoAdapter } from '../platforms/toutiao'
 import { JiemianAdapter, TencentOmAdapter } from '../platforms/news-portals'
 import { BafangAdapter } from '../platforms/b2b-directory'
-import { JianshuAdapter } from '../platforms/content-communities'
+import { BaiduZhidaoAdapter, JianshuAdapter } from '../platforms/content-communities'
 import { InfoqAdapter, IthomeAdapter, KuaidongAdapter } from '../platforms/submission-draft'
 
 /** 只关心 cookie 查询的最小 runtime */
@@ -435,5 +435,34 @@ describe('被动刷新不许开标签页', () => {
 
     expect(opened).toHaveLength(0)
     expect(auth.isAuthenticated).toBe(true)
+  })
+})
+
+describe('游客 Cookie 不能当成登录态（百度知道）', () => {
+  it('只有 BAIDUID / BAIDUID_BFESS 时判未登录', async () => {
+    const { runtime } = createRuntime({
+      'zhidao.baidu.com': [
+        cookie('BAIDUID', 'x', '.baidu.com', { httpOnly: false }),
+        cookie('BAIDUID_BFESS', 'x', '.baidu.com', { httpOnly: true }),
+      ],
+    })
+    const adapter = new BaiduZhidaoAdapter()
+    await adapter.init(runtime)
+
+    const auth = await adapter.checkAuth()
+    expect(auth.isAuthenticated).toBe(false)
+  })
+
+  it('真的 BDUSS 仍然算登录', async () => {
+    const { runtime } = createRuntime({
+      'zhidao.baidu.com': [
+        cookie('BAIDUID', 'x', '.baidu.com', { httpOnly: false }),
+        cookie('BDUSS', 'abc', '.baidu.com', { httpOnly: true }),
+      ],
+    })
+    const adapter = new BaiduZhidaoAdapter()
+    await adapter.init(runtime)
+
+    expect((await adapter.checkAuth()).isAuthenticated).toBe(true)
   })
 })
