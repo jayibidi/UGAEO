@@ -1,6 +1,6 @@
 {
   "name": "sync",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "description": "Sync articles to 34+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
   "author": {
     "name": "jayibidi",

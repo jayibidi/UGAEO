@@ -1,6 +1,6 @@
 {
   "name": "ugaeo",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "private": true,
   "description": "开源免费的跨平台文章同步 Chrome 扩展：微信公众号一键分发到知乎、掘金、CSDN、头条号等 34 个平台",
   "workspaces": [

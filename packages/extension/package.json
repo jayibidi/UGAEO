@@ -1,6 +1,6 @@
 {
   "name": "@ugaeo/extension",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "private": true,
   "description": "UGAEO - 多平台文章同步与发布 Chrome 扩展",
   "type": "module",
