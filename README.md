@@ -1,8 +1,8 @@
 # UG·AEO | 新媒体中心
 
-![](https://img.shields.io/github/v/release/jayibidi/UGAEO.svg)
-![](https://img.shields.io/github/last-commit/jayibidi/UGAEO)
-![](https://img.shields.io/github/issues/jayibidi/UGAEO)
+![](https://img.shields.io/github/v/release/UGooTo/UGAEO.svg)
+![](https://img.shields.io/github/last-commit/UGooTo/UGAEO)
+![](https://img.shields.io/github/issues/UGooTo/UGAEO)
 
 **开源免费**的跨平台文章同步工具 | Chrome 浏览器扩展 | 自媒体内容分发神器
 
@@ -177,7 +177,7 @@
 
 **方式一：下载 Release（推荐）**
 
-1. 打开 [最新 Release](https://github.com/jayibidi/UGAEO/releases/latest)，下载 `ugaeo-<版本>.zip`
+1. 打开 [最新 Release](https://github.com/UGooTo/UGAEO/releases/latest)，下载 `ugaeo-<版本>.zip`
 2. 打开 `chrome://extensions` → 右上角开启「开发者模式」
 3. **把 zip 拖到页面上** → 点「添加扩展程序」
 
@@ -308,7 +308,7 @@ ugaeo extract -o article.md
 安装后可在 Claude Code 中直接用自然语言操作：
 
 ```bash
-/plugin marketplace add jayibidi/UGAEO
+/plugin marketplace add UGooTo/UGAEO
 /plugin install sync@ugaeo
 ```
 
@@ -319,7 +319,7 @@ ugaeo extract -o article.md
 本仓库自带 `skills/` 与 `.claude-plugin/`，可以直接作为插件源注册：
 
 ```bash
-/plugin marketplace add jayibidi/UGAEO
+/plugin marketplace add UGooTo/UGAEO
 /plugin install sync@ugaeo
 ```
 
@@ -412,13 +412,13 @@ pnpm icons
 
 ## 更新日志
 
-完整变更见 [CHANGELOG.md](CHANGELOG.md)，可下载的版本见 [Releases](https://github.com/jayibidi/UGAEO/releases)。
+完整变更见 [CHANGELOG.md](CHANGELOG.md)，可下载的版本见 [Releases](https://github.com/UGooTo/UGAEO/releases)。
 
 ## 参与贡献
 
 - [开发指南](CONTRIBUTING.md)：环境要求、常用命令、如何新增一个平台、提交规范
 - [适配器开发规范](docs/adapter-spec.md)
-- 想支持某个平台？用 [「请求支持新平台」](https://github.com/jayibidi/UGAEO/issues/new?template=platform_request.yml) 模板提 issue，写清入驻门槛比写平台名有用得多
+- 想支持某个平台？用 [「请求支持新平台」](https://github.com/UGooTo/UGAEO/issues/new?template=platform_request.yml) 模板提 issue，写清入驻门槛比写平台名有用得多
 
 ## 使用场景
 
@@ -444,7 +444,7 @@ pnpm icons
 
 **Q: 数据安全吗？会上传我的账号信息吗？**
 
-不会。所有操作在本地浏览器内完成，你的 Cookie、文章内容、账号信息不经过任何第三方服务器。代码完全开源，可自行审计：[查看源码](https://github.com/jayibidi/UGAEO)
+不会。所有操作在本地浏览器内完成，你的 Cookie、文章内容、账号信息不经过任何第三方服务器。代码完全开源，可自行审计：[查看源码](https://github.com/UGooTo/UGAEO)
 
 **Q: 明明登录了，账号页却显示「未登录」怎么办？**
 

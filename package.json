@@ -54,11 +54,11 @@
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jayibidi/UGAEO.git"
+    "url": "git+https://github.com/UGooTo/UGAEO.git"
   },
-  "homepage": "https://github.com/jayibidi/UGAEO#readme",
+  "homepage": "https://github.com/UGooTo/UGAEO#readme",
   "bugs": {
-    "url": "https://github.com/jayibidi/UGAEO/issues"
+    "url": "https://github.com/UGooTo/UGAEO/issues"
   },
   "author": {
     "name": "jayibidi",
