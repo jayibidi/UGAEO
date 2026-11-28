@@ -7,6 +7,7 @@
 
 **开源免费**的跨平台文章同步工具 | Chrome 浏览器扩展 | 自媒体内容分发神器
 
+[![官网](https://img.shields.io/badge/Official%20Website-ugooto.cn-blue?style=for-the-badge)](https://www.ugooto.cn/)
 一键同步微信公众号文章到知乎、头条、掘金、小红书、CSDN 等 31 个平台，支持 WordPress / Typecho 等自建博客，告别重复复制粘贴。
 
 > 🔥 支持 **Anthropic MCP 协议**，可在 Claude Desktop / Claude Code 中通过 AI 一键发布文章
