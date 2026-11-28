@@ -81,14 +81,12 @@ describe('AI 创作页', () => {
     expect(html).toContain('保存')
   })
 
-  it('AI 模型配置直接在页面上，含两个模型下拉与开关', () => {
+  it('不再重复放 AI 模型配置（入口只在设置与控制台左下角）', () => {
     setState(null)
     const html = renderPage()
 
-    expect(html).toContain('AI 模型')
-    expect(html).toContain('启用 AI 能力')
-    expect(html).toContain('文本模型（排版 / 文案 / 识图）')
-    expect(html).toContain('生图模型（AI 配图）')
+    expect(html).not.toContain('启用 AI 能力')
+    expect(html).not.toContain('拉取模型库')
   })
 
   it('有文章时显示摘要、载入编辑器与去发布', () => {

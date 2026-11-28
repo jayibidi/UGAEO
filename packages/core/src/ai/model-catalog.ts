@@ -16,10 +16,34 @@
 
 export type ModelKind = 'chat' | 'image' | 'other'
 
-/** 网关能力声明里表示「文生图」的写法 */
+/** 网关声明里表示「文生图」的写法 */
 const IMAGE_ENDPOINT_HINTS = ['image-generation', 'image_generation', 'images', 'image']
 /** 声明里表示「图生图 / 编辑」的写法，排除掉 */
 const IMAGE_EDIT_ENDPOINT_HINTS = ['image-edit', 'image_edit', 'image-to-image', 'inpaint', 'upscale']
+
+/**
+ * 视频 / 数字人类模型
+ *
+ * 实测中转站会把这类同样声明成 `image-generation`（如 `kling-video-v4`、
+ * `pixverse-video`、`viduq3-pro`、`veo_3_1-fast`），按声明分类就会把它们塞进
+ * 「生图模型」下拉 —— 选了一调用就是 400。名称里带这些词的一律不算生图。
+ */
+const VIDEO_NAME_HINTS: RegExp[] = [
+  /(^|[\s._-])video([\s._-]|$)/i,
+  /(^|[\s._-])veo([\s._-]|$)/i,
+  /(^|[\s._-])sora([\s._-]|$)/i,
+  /kling/i,
+  /\bvidu/i,
+  /pixverse/i,
+  /runway/i,
+  /\bpika\b/i,
+  /\bluma\b/i,
+  /hailuo/i,
+  /seedance/i,
+  /\bhunyuan[\s-]?(video|avatar)/i,
+  /avatar/i,
+  /digital[\s-]?human/i,
+]
 
 /** 名称像生图模型的（按覆盖度排序，越具体的越前） */
 const IMAGE_NAME_HINTS: RegExp[] = [
@@ -61,7 +85,7 @@ const IMAGE_EDIT_NAME_HINTS: RegExp[] = [
   /upscal/i,
   /variation/i,
   /[\s._-]edit\b/i,
-  /^mj[\s._-](blend|describe|shorten|upscale|variation)/i,
+  /^mj[\s._-](blend|describe|shorten|upscale|variation|upload|action)/i,
 ]
 
 /** 非文本、非生图的模态（向量 / 语音 / 视频 / 审核 / OCR） */
@@ -119,6 +143,18 @@ export function classifyModel(id: string, endpoints: string[] = []): ModelKind {
   const name = (id || '').trim()
   if (!name) return 'other'
 
+  // 视频 / 数字人：网关常与生图共用同一个能力声明，必须在看声明之前排掉
+  if (VIDEO_NAME_HINTS.some(re => re.test(name))) return 'other'
+
+  /**
+   * 编辑 / 操作类也要抢在声明之前判断
+   *
+   * 网关会把 `mj_upload`、`flux-kontext` 这类同样声明成 `image-generation`，
+   * 先看声明就会被当成文生图放进去。
+   */
+  const isImageEditName = IMAGE_EDIT_NAME_HINTS.some(re => re.test(name))
+  if (isImageEditName) return 'other'
+
   const declared = endpoints.join(' ')
   const declaredImage = endpoints.some(item =>
     IMAGE_ENDPOINT_HINTS.some(hint => item === hint || item.includes(hint))
@@ -128,14 +164,11 @@ export function classifyModel(id: string, endpoints: string[] = []): ModelKind {
   )
 
   // 网关明确说了是图生图 / 编辑 → 不当作文生图
-  if (declaredImage && !declaredImageEdit) return 'image'
   if (declaredImageEdit) return 'other'
+  if (declaredImage) return 'image'
 
   const isImageName = IMAGE_NAME_HINTS.some(re => re.test(name))
-  const isImageEditName = IMAGE_EDIT_NAME_HINTS.some(re => re.test(name))
-
-  if (isImageName && !isImageEditName) return 'image'
-  if (isImageEditName) return 'other'
+  if (isImageName) return 'image'
 
   // 网关声明能聊天（openai / anthropic / chat 之类）→ 文本模型
   if (declared && /openai|anthropic|chat|completion|responses/.test(declared)) {
@@ -210,6 +243,8 @@ const CHAT_PREFERENCES = [
 
 /** 默认生图模型偏好（越靠前越优先） */
 const IMAGE_PREFERENCES = [
+  /seedream-5/i,
+  /seedream-4/i,
   /seedream/i,
   /dall[\s._-]?e-3/i,
   /gpt-image/i,

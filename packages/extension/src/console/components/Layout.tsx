@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { isLocalToolPlatform } from '@ugaeo/core'
 import { getAISettings, saveAISettings, type AISettings } from '../../lib/ai-settings'
+import { AISettingsDialog } from './AISettingsDialog'
 import { useConsoleStore } from '../lib/store'
 
 const NAV = [
@@ -105,6 +106,7 @@ function NoticeBar() {
  */
 function AIStatusCard() {
   const [settings, setSettings] = useState<AISettings | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   useEffect(() => {
     getAISettings().then(setSettings).catch(() => {})
@@ -128,55 +130,69 @@ function AIStatusCard() {
   }
 
   return (
-    <div className="mx-3 mb-2 rounded-lg border bg-background p-3 text-xs">
-      <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 font-medium">
-          <Sparkles className={`h-3.5 w-3.5 ${ready ? 'text-violet-500' : 'text-muted-foreground'}`} />
-          AI 能力
-        </span>
-        <button
-          onClick={toggle}
-          role="switch"
-          aria-checked={enabled}
-          aria-label="启用 AI 能力"
-          className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
-            enabled ? 'bg-primary' : 'bg-muted-foreground/30'
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
-              enabled ? 'translate-x-4' : 'translate-x-0.5'
-            }`}
-          />
-        </button>
-      </div>
-      <p className="mt-1.5 leading-relaxed text-muted-foreground">
-        {ready ? (
-          <span className="mt-0.5 block space-y-0.5 text-[10.5px]">
-            <span className="block truncate" title={settings?.model}>
-              文本 · {settings?.model}
-            </span>
-            <span className="block truncate" title={settings?.imageModel || '未选生图模型'}>
-              生图 · {settings?.imageModel || '未选'}
-            </span>
+    <>
+      <div className="mx-3 mb-2 rounded-lg border bg-background p-3 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 font-medium">
+            <Sparkles className={`h-3.5 w-3.5 ${ready ? 'text-violet-500' : 'text-muted-foreground'}`} />
+            AI 能力
           </span>
-        ) : enabled ? (
+          <button
+            onClick={toggle}
+            role="switch"
+            aria-checked={enabled}
+            aria-label="启用 AI 能力"
+            className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
+              enabled ? 'bg-primary' : 'bg-muted-foreground/30'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                enabled ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
+
+        {ready ? (
           <>
-            还差 Key 或模型，
-            <NavLink to="/compose" className="text-primary hover:underline">
-              去配置
-            </NavLink>
+            <div className="mt-1.5 flex items-start gap-1">
+              <div className="min-w-0 flex-1 space-y-0.5 text-[10.5px] text-muted-foreground">
+                <span className="block truncate" title={settings?.model}>
+                  文本 · {settings?.model}
+                </span>
+                <span className="block truncate" title={settings?.imageModel || '未选生图模型'}>
+                  生图 · {settings?.imageModel || '未选'}
+                </span>
+              </div>
+              <button
+                onClick={() => setDialogOpen(true)}
+                className="flex-shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="调整模型"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </>
         ) : (
           <>
-            <NavLink to="/compose" className="text-primary hover:underline">
-              去配置
-            </NavLink>{' '}
-            中转站后可用一键成稿、AI 对话与配图
+            <p className="mt-1.5 leading-relaxed text-muted-foreground">
+              {enabled ? '还差 API Key 或模型，补全后即可使用' : '接入中转站后可用一键成稿、AI 对话与配图'}
+            </p>
+            {/* 这里是控制台里唯一的配置入口，做成实心按钮，别再藏成一行小字 */}
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="uga-btn-primary mt-2 w-full justify-center px-2 py-1.5 text-[11.5px] font-medium"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              去配置 AI
+            </button>
           </>
         )}
-      </p>
-    </div>
+      </div>
+
+      <AISettingsDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+    </>
   )
 }
 

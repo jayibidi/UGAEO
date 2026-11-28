@@ -124,3 +124,34 @@ describe('pickDefaultModel', () => {
     expect(pickDefaultModel([], 'image')).toBe('')
   })
 })
+
+describe('视频类不能混进生图下拉', () => {
+  // 实测 api.ugooto-ai.com：这些都被网关声明成 image-generation
+  const videoCases = [
+    'kling-video-v4',
+    'kling-video-v4-flash',
+    'pixverse-video',
+    'pixverse-image-template',
+    'viduq3-pro',
+    'viduq2-turbo',
+    'veo_3_1-fast',
+    'doubao-seedance-1-0',
+    'aigc-image-kling',
+    'hunyuan-video',
+  ]
+
+  it.each(videoCases)('%s 归到 other', id => {
+    expect(classifyModel(id, ['image-generation'])).toBe('other')
+  })
+
+  it('真正的生图模型不受影响', () => {
+    expect(classifyModel('doubao-seedream-4-0-250828', ['image-generation'])).toBe('image')
+    expect(classifyModel('gpt-image-1', ['image-generation'])).toBe('image')
+    expect(classifyModel('qwen-image-3.0', ['image-generation'])).toBe('image')
+  })
+
+  it('MJ 的操作类（上传 / 放大）不当作生图', () => {
+    expect(classifyModel('mj_upload', ['image-generation'])).toBe('other')
+    expect(classifyModel('mj_upscale', ['image-generation'])).toBe('other')
+  })
+})

@@ -343,11 +343,7 @@ export function AiChatPage() {
         // 空态：问候 + 输入 + 建议卡，整体居中
         <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col justify-center py-6">
           <div className="mb-6 text-center">
-            <p className="flex items-center justify-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5" />
-              UG·AEO
-            </p>
-            <h1 className="mt-2 text-[26px] font-semibold leading-tight">
+            <h1 className="text-[26px] font-semibold leading-tight">
               {greeting()}，想创作点什么？
             </h1>
             <p className="mt-2 text-xs text-muted-foreground">
