@@ -1,8 +1,9 @@
 # UG·AEO | 新媒体中心
-
-![](https://img.shields.io/github/v/release/UGooTo/UGAEO.svg)
-![](https://img.shields.io/github/last-commit/UGooTo/UGAEO)
-![](https://img.shields.io/github/issues/UGooTo/UGAEO)
+[![Official Website](https://img.shields.io/badge/Official%20Website-ugooto.cn-blue?style=flat-square)](https://www.ugooto.cn/)
+[![AI Models](https://img.shields.io/badge/AI%20Models-300%2B-orange?style=flat-square)](https://api.ugooto-ai.com)
+[![Release](https://img.shields.io/github/v/release/UGooTo/UGAEO?style=flat-square)](https://github.com/UGooTo/UGAEO/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/UGooTo/UGAEO?style=flat-square)](https://github.com/UGooTo/UGAEO/commits/main)
+[![Issues](https://img.shields.io/github/issues/UGooTo/UGAEO?style=flat-square)](https://github.com/UGooTo/UGAEO/issues)
 
 **开源免费**的跨平台文章同步工具 | Chrome 浏览器扩展 | 自媒体内容分发神器
 
