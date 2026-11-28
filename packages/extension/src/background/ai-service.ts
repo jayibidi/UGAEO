@@ -12,6 +12,7 @@ import {
   normalizeBaseUrl,
   splitModelCatalog,
   type AIConfig,
+  type ChatMessage,
   type DraftLength,
   type ModelCatalog,
   type RewriteMode,
@@ -79,6 +80,19 @@ export type AITask =
       type: 'image'
       prompt: string
       size?: string
+    } & AITaskBase)
+  | ({
+      /**
+       * 通用多轮对话（控制台「AI 对话」页）
+       *
+       * 和上面那些任务不同：它们各自有固定提示词与结构化输出，这里要的是
+       * 原样保留上下文自由对话，所以直接走 client.chat，不经过 processor。
+       */
+      type: 'chat'
+      messages: Array<{ role: 'user' | 'assistant'; content: string }>
+      /** 覆盖默认人设 */
+      system?: string
+      maxTokens?: number
     } & AITaskBase)
 
 /** 生图结果：统一给 dataURL，编辑器直接内联进正文，不依赖图床 */
@@ -233,6 +247,38 @@ async function downloadAsDataUrl(url: string): Promise<string> {
 }
 
 /**
+ * 通用对话的默认人设
+ *
+ * 这个页面是给「想写点什么但还没想清楚」用的：选题、起标题、列大纲、改稿都要能接。
+ * 明确要求 Markdown，因为回复会直接被贴进正文。
+ */
+const CHAT_SYSTEM = `你是 UG·AEO 的中文内容创作助手，服务对象是在多平台发布内容的作者。
+
+回答要求：
+- 中文，直接给结果，不写「好的，我来帮你」这类开场白
+- 需要正文、大纲、标题列表时用 Markdown（## 小标题、有序/无序列表），便于直接贴进编辑器
+- 用户没说平台时默认按公众号 / 知乎的阅读习惯写；说了平台就按那个平台的调性
+- 不确定的信息不要编，直接问用户或说明需要什么信息`
+
+/**
+ * 组装对话消息
+ *
+ * 单独抽出来是为了能脱离网络单测：system 用调用方给的还是默认人设、
+ * 空内容会不会被塞进去，这两点是「对话突然失忆 / 报 400」的常见原因。
+ */
+export function buildChatMessages(task: {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  system?: string
+}): ChatMessage[] {
+  return [
+    { role: 'system', content: task.system?.trim() || CHAT_SYSTEM },
+    ...task.messages
+      .filter(message => message.content?.trim())
+      .map(message => ({ role: message.role, content: message.content })),
+  ]
+}
+
+/**
  * 执行 AI 任务
  */
 export async function runAITask(task: AITask): Promise<AIResponse<unknown>> {
@@ -257,6 +303,24 @@ export async function runAITask(task: AITask): Promise<AIResponse<unknown>> {
       return { ok: true, data: result }
     } catch (error) {
       logger.warn('AI image failed:', (error as Error).message)
+      return { ok: false, error: (error as Error).message }
+    }
+  }
+
+  // 通用对话同样绕过 processor：那边是面向具体任务的固定提示词
+  if (task.type === 'chat') {
+    try {
+      const client = new OpenAICompatibleClient(configFrom(settings, task))
+      const text = await client.chat(buildChatMessages(task), {
+        maxTokens: task.maxTokens ?? 3000,
+        // 长文生成不设 30 秒的话，接口默认超时会把还没写完的请求掐掉
+        timeout: 180_000,
+      })
+      if (!text.trim()) return { ok: false, error: 'AI 没有返回内容，换个说法再试' }
+      logger.info(`Chat replied ${text.length} chars`)
+      return { ok: true, data: text }
+    } catch (error) {
+      logger.warn('AI chat failed:', (error as Error).message)
       return { ok: false, error: (error as Error).message }
     }
   }

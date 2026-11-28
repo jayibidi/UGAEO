@@ -115,15 +115,27 @@ export function PlatformPicker() {
                   <PlatformIcon platformId={platform.id} icon={platform.icon} name={platform.name} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{platform.name}</span>
-                    <span className="block truncate text-[11px] text-muted-foreground">
+                    {/* 三列布局下这一行窄，只放最短的状态词；完整说明挂在 title 上 */}
+                    <span
+                      className="block truncate text-[11px] text-muted-foreground"
+                      title={
+                        platform.sourceType === 'cms'
+                          ? platform.homepage
+                          : platform.isAuthenticated
+                            ? '已登录'
+                            : platform.needsProbe
+                              ? '登录态存在服务端 Session，发布时会开页确认'
+                              : '未登录，同步前请先在浏览器登录该平台'
+                      }
+                    >
                       {platform.username ||
                         (platform.sourceType === 'cms'
                           ? platform.homepage
                           : platform.isAuthenticated
                             ? '已登录'
                             : platform.needsProbe
-                              ? '登录态待检测 · 发布时确认'
-                              : '未登录 · 同步前先登录')}
+                              ? '待检测'
+                              : '未登录')}
                     </span>
                   </span>
                   <PublishCapability platform={platform} />

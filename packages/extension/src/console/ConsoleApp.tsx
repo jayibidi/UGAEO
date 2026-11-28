@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { OverviewPage } from './pages/Overview'
+import { AiChatPage } from './pages/AiChat'
+import { ComposePage } from './pages/Compose'
 import { SyncPage } from './pages/Sync'
 import { AccountsPage } from './pages/Accounts'
 import { HistoryPage } from './pages/History'
@@ -32,6 +34,8 @@ export default function ConsoleApp() {
       <Layout>
         <Routes>
           <Route path="/" element={<OverviewPage />} />
+          <Route path="/ai-chat" element={<AiChatPage />} />
+          <Route path="/compose" element={<ComposePage />} />
           <Route path="/sync" element={<SyncPage />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/history" element={<HistoryPage />} />

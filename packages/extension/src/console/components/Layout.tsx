@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -6,18 +6,24 @@ import {
   History,
   Info,
   LayoutDashboard,
+  MessageSquare,
+  PenLine,
   RefreshCw,
   ScanSearch,
   Send,
   Settings2,
+  Sparkles,
   Users,
   X,
 } from 'lucide-react'
 import { isLocalToolPlatform } from '@ugaeo/core'
+import { getAISettings, saveAISettings, type AISettings } from '../../lib/ai-settings'
 import { useConsoleStore } from '../lib/store'
 
 const NAV = [
   { to: '/', label: '概览', icon: LayoutDashboard, desc: '账号与同步总览' },
+  { to: '/ai-chat', label: 'AI 对话', icon: MessageSquare, desc: '选题、写稿、生图，边聊边创作' },
+  { to: '/compose', label: 'AI 创作', icon: PenLine, desc: '待同步文章、编辑器与 AI 模型配置' },
   { to: '/sync', label: '同步', icon: Send, desc: '选择平台并发布文章' },
   { to: '/accounts', label: '账号', icon: Users, desc: '多平台登录状态查验' },
   { to: '/history', label: '记录', icon: History, desc: '每次同步的明细' },
@@ -91,6 +97,89 @@ function NoticeBar() {
   )
 }
 
+/**
+ * 侧边栏上的 AI 总开关
+ *
+ * 需求是「把 AI 功能的开关直接做到菜单里」：不用先进某一页翻设置，
+ * 在左侧就能看到当前状态并一键开关。真正配置中转站/Key/模型在 AI 创作页。
+ */
+function AIStatusCard() {
+  const [settings, setSettings] = useState<AISettings | null>(null)
+
+  useEffect(() => {
+    getAISettings().then(setSettings).catch(() => {})
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === 'local' && changes.aiSettings) {
+        const next = changes.aiSettings.newValue as AISettings | undefined
+        if (next) setSettings(prev => (prev ? { ...prev, ...next } : next))
+      }
+    }
+    chrome.storage.onChanged.addListener(onChanged)
+    return () => chrome.storage.onChanged.removeListener(onChanged)
+  }, [])
+
+  const enabled = settings?.enabled ?? false
+  const ready = enabled && !!settings?.apiKey?.trim() && !!settings?.model?.trim()
+
+  const toggle = () => {
+    const next = !enabled
+    setSettings(prev => (prev ? { ...prev, enabled: next } : prev))
+    saveAISettings({ enabled: next }).catch(() => {})
+  }
+
+  return (
+    <div className="mx-3 mb-2 rounded-lg border bg-background p-3 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 font-medium">
+          <Sparkles className={`h-3.5 w-3.5 ${ready ? 'text-violet-500' : 'text-muted-foreground'}`} />
+          AI 能力
+        </span>
+        <button
+          onClick={toggle}
+          role="switch"
+          aria-checked={enabled}
+          aria-label="启用 AI 能力"
+          className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
+            enabled ? 'bg-primary' : 'bg-muted-foreground/30'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+              enabled ? 'translate-x-4' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
+      <p className="mt-1.5 leading-relaxed text-muted-foreground">
+        {ready ? (
+          <span className="mt-0.5 block space-y-0.5 text-[10.5px]">
+            <span className="block truncate" title={settings?.model}>
+              文本 · {settings?.model}
+            </span>
+            <span className="block truncate" title={settings?.imageModel || '未选生图模型'}>
+              生图 · {settings?.imageModel || '未选'}
+            </span>
+          </span>
+        ) : enabled ? (
+          <>
+            还差 Key 或模型，
+            <NavLink to="/compose" className="text-primary hover:underline">
+              去配置
+            </NavLink>
+          </>
+        ) : (
+          <>
+            <NavLink to="/compose" className="text-primary hover:underline">
+              去配置
+            </NavLink>{' '}
+            中转站后可用一键成稿、AI 对话与配图
+          </>
+        )}
+      </p>
+    </div>
+  )
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   // CMS 站点没有「登录态」概念；本地工具（Markdown 压缩包）也不是平台，都不进分母
   const platformCount = useConsoleStore(
@@ -132,6 +221,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
+        <AIStatusCard />
+
         <div className="m-3 rounded-lg border bg-background p-3 text-xs">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">登录状态</span>
@@ -155,7 +246,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <TopBar />
         <NoticeBar />
         <main className="flex-1 overflow-y-auto px-8 py-6">
-          <div className="mx-auto w-full max-w-[1320px]">{children}</div>
+          {/* 用 flex 撑满高度：AI 对话这类需要垂直居中的页面才有确定的可用高度 */}
+          <div className="mx-auto flex min-h-full w-full max-w-[1320px] flex-col">{children}</div>
         </main>
       </div>
     </div>

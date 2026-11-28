@@ -27,6 +27,20 @@ interface Props {
    * publish：改完直接重发（失败处理页用）
    */
   purpose?: 'save' | 'publish'
+  /**
+   * 内嵌到页面里而不是弹窗（AI 创作页用）
+   *
+   * 去掉遮罩与固定高度，让页面自己滚；关闭按钮也不显示 —— 内嵌时没有「关掉」
+   * 这个概念，只有保存。
+   */
+  inline?: boolean
+  /**
+   * 外部切换要编辑的文章时递增
+   *
+   * 内嵌时 open 恒为 true，光改 initialArticle 不会触发重新载入（下面那个 effect
+   * 依赖 open），所以给一个显式的重载信号。
+   */
+  resetKey?: string | number
   onSave?: (article: Article) => void
 }
 
@@ -49,6 +63,8 @@ export function EditArticleModal({
   defaultMode = 'publish',
   heading,
   purpose = 'publish',
+  inline = false,
+  resetKey,
   onSave,
 }: Props) {
   const { platforms, loadSnapshot, runSync, setNotice } = useConsoleStore()
@@ -125,7 +141,7 @@ export function EditArticleModal({
       .finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
-  }, [open, syncId, loadSnapshot])
+  }, [open, syncId, loadSnapshot, resetKey])
 
   const { selectable, locked } = useMemo(() => splitPlatformsByMode(platforms, mode), [platforms, mode])
   const selectableKey = selectable.map(platform => platform.id).join(',')
@@ -235,24 +251,31 @@ export function EditArticleModal({
   const isSaveMode = purpose === 'save'
   const titleText = heading || (isSaveMode ? '编辑文章' : '返回编辑并重新发布')
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6 backdrop-blur-sm">
-      <div className="my-6 w-full max-w-3xl rounded-xl border bg-card shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold">{titleText}</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {isSaveMode
-                ? '内容可以先写一半，随时保存；发布方式与平台可以之后再选。'
-                : '修改后可直接重发到指定平台，失败的原文会保留在同步记录里。'}
-            </p>
-          </div>
+  const panel = (
+    <div
+      className={
+        inline
+          ? 'w-full rounded-xl border bg-card'
+          : 'my-6 w-full max-w-3xl rounded-xl border bg-card shadow-2xl'
+      }
+    >
+      <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
+        <div>
+          <h2 className="text-base font-semibold">{titleText}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {isSaveMode
+              ? '内容可以先写一半，随时保存；发布方式与平台可以之后再选。'
+              : '修改后可直接重发到指定平台，失败的原文会保留在同步记录里。'}
+          </p>
+        </div>
+        {!inline && (
           <button className="uga-btn-ghost p-1" onClick={onClose}>
             <X className="h-4 w-4" />
           </button>
-        </header>
+        )}
+      </header>
 
-        <div className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
+      <div className={inline ? 'space-y-4 px-5 py-4' : 'max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4'}>
           {loading ? (
             <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> 正在读取正文快照…
@@ -481,40 +504,53 @@ export function EditArticleModal({
           )}
         </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t px-5 py-3">
-          <span className="text-xs text-muted-foreground">
-            {isSaveMode
-              ? `已选 ${targets.length} 个平台 · 不必填全也能保存`
-              : `已选 ${targets.length} 个平台`}
-          </span>
-          <div className="flex gap-2">
+      <footer className="flex items-center justify-between gap-3 border-t px-5 py-3">
+        <span className="text-xs text-muted-foreground">
+          {isSaveMode
+            ? `已选 ${targets.length} 个平台 · 不必填全也能保存`
+            : `已选 ${targets.length} 个平台`}
+        </span>
+        <div className="flex gap-2">
+          {!inline && (
             <button className="uga-btn-secondary" onClick={onClose}>
               {results && !isSaveMode ? '关闭' : '取消'}
             </button>
-            {isSaveMode ? (
-              <button className="uga-btn-primary" onClick={handleSave} disabled={loading}>
-                <Save className="h-4 w-4" />
-                保存
-              </button>
-            ) : (
-              <button
-                className="uga-btn-primary"
-                onClick={submit}
-                disabled={running || loading || !title.trim() || !body.trim() || targets.length === 0}
-              >
-                {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {running ? '发布中…' : '保存并重发'}
-              </button>
-            )}
-          </div>
-        </footer>
-      </div>
+          )}
+          {isSaveMode ? (
+            <button className="uga-btn-primary" onClick={handleSave} disabled={loading}>
+              <Save className="h-4 w-4" />
+              保存
+            </button>
+          ) : (
+            <button
+              className="uga-btn-primary"
+              onClick={submit}
+              disabled={running || loading || !title.trim() || !body.trim() || targets.length === 0}
+            >
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {running ? '发布中…' : '保存并重发'}
+            </button>
+          )}
+        </div>
+      </footer>
+    </div>
+  )
+
+  return (
+    <>
+      {inline ? (
+        panel
+      ) : (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6 backdrop-blur-sm">
+          {panel}
+        </div>
+      )}
 
       <AISettingsDialog
         open={aiSettingsOpen}
         onClose={() => setAiSettingsOpen(false)}
         focus={aiFocus}
       />
-    </div>
+    </>
   )
 }
